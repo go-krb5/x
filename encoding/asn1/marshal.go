@@ -326,7 +326,7 @@ func makePrintableString(s string) (e encoder, err error) {
 
 func makeIA5String(s string) (e encoder, err error) {
 	for i := 0; i < len(s); i++ {
-		if s[i] > 127 {
+		if s[i] >= utf8.RuneSelf {
 			return nil, StructuralError{"IA5String contains invalid character"}
 		}
 	}
@@ -562,7 +562,7 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 		}
 	case reflect.String:
 		switch params.stringType {
-		case TagIA5String:
+		case TagIA5String, TagGeneralString:
 			return makeIA5String(v.String())
 		case TagPrintableString:
 			return makePrintableString(v.String())
@@ -630,7 +630,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 		return nil, StructuralError{"explicit time type given to non-time member"}
 	}
 
-	if params.stringType != 0 && tag != TagPrintableString {
+	if params.stringType != 0 && !(tag == TagPrintableString || (v.Kind() == reflect.Slice && tag == TagSequence && v.Type().Elem().Kind() == reflect.String)) {
 		return nil, StructuralError{"explicit string type given to non-string member"}
 	}
 

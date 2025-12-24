@@ -22,7 +22,6 @@ package asn1
 import (
 	"errors"
 	"fmt"
-	"internal/saferio"
 	"math"
 	"math/big"
 	"reflect"
@@ -32,6 +31,8 @@ import (
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
+
+	"github.com/go-krb5/x/internal/saferio"
 )
 
 // A StructuralError suggests that the ASN.1 data is valid, but the Go type
@@ -739,7 +740,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 				result, err = parsePrintableString(innerBytes)
 			case TagNumericString:
 				result, err = parseNumericString(innerBytes)
-			case TagIA5String:
+			case TagIA5String, TagGeneralString:
 				result, err = parseIA5String(innerBytes)
 			case TagT61String:
 				result, err = parseT61String(innerBytes)

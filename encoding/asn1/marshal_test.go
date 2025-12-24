@@ -57,6 +57,10 @@ type ia5StringTest struct {
 	A string `asn1:"ia5"`
 }
 
+type generalStringTest struct {
+	A string `asn1:"generalstring"`
+}
+
 type printableStringTest struct {
 	A string `asn1:"printable"`
 }
@@ -161,6 +165,7 @@ var marshalTests = []marshalTest{
 			"7878787878787878787878787878787878787878787878787878787878787878",
 	},
 	{ia5StringTest{"test"}, "3006160474657374"},
+	{generalStringTest{"test"}, "30061b0474657374"},
 	{optionalRawValueTest{}, "3000"},
 	{printableStringTest{"test"}, "3006130474657374"},
 	{printableStringTest{"test*"}, "30071305746573742a"},
