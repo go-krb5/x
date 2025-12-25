@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 type intStruct struct {
@@ -114,90 +116,92 @@ func farFuture() time.Time {
 	return t
 }
 
-var marshalTests = []marshalTest{
-	{10, "02010a"},
-	{127, "02017f"},
-	{128, "02020080"},
-	{-128, "020180"},
-	{-129, "0202ff7f"},
-	{intStruct{64}, "3003020140"},
-	{bigIntStruct{big.NewInt(0x123456)}, "30050203123456"},
-	{twoIntStruct{64, 65}, "3006020140020141"},
-	{nestedStruct{intStruct{127}}, "3005300302017f"},
-	{[]byte{1, 2, 3}, "0403010203"},
-	{implicitTagTest{64}, "3003850140"},
-	{explicitTagTest{64}, "3005a503020140"},
-	{flagTest{true}, "30028000"},
-	{flagTest{false}, "3000"},
-	{time.Unix(0, 0).UTC(), "170d3730303130313030303030305a"},
-	{time.Unix(1258325776, 0).UTC(), "170d3039313131353232353631365a"},
-	{time.Unix(1258325776, 0).In(PST), "17113039313131353134353631362d30383030"},
-	{farFuture(), "180f32313030303430353132303130315a"},
-	{generalizedTimeTest{time.Unix(1258325776, 0).UTC()}, "3011180f32303039313131353232353631365a"},
-	{BitString{[]byte{0x80}, 1}, "03020780"},
-	{BitString{[]byte{0x81, 0xf0}, 12}, "03030481f0"},
-	{ObjectIdentifier([]int{1, 2, 3, 4}), "06032a0304"},
-	{ObjectIdentifier([]int{1, 2, 840, 133549, 1, 1, 5}), "06092a864888932d010105"},
-	{ObjectIdentifier([]int{2, 100, 3}), "0603813403"},
-	{"test", "130474657374"},
-	{
-		"" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // This is 127 times 'x'
-		"137f" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"78787878787878787878787878787878787878787878787878787878787878",
-	},
-	{
-		"" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
-			"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // This is 128 times 'x'
-		"138180" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"7878787878787878787878787878787878787878787878787878787878787878" +
-			"7878787878787878787878787878787878787878787878787878787878787878",
-	},
-	{ia5StringTest{"test"}, "3006160474657374"},
-	{generalStringTest{"test"}, "30061b0474657374"},
-	{optionalRawValueTest{}, "3000"},
-	{printableStringTest{"test"}, "3006130474657374"},
-	{printableStringTest{"test*"}, "30071305746573742a"},
-	{genericStringTest{"test"}, "3006130474657374"},
-	{genericStringTest{"test*"}, "30070c05746573742a"},
-	{genericStringTest{"test&"}, "30070c057465737426"},
-	{rawContentsStruct{nil, 64}, "3003020140"},
-	{rawContentsStruct{[]byte{0x30, 3, 1, 2, 3}, 64}, "3003010203"},
-	{RawValue{Tag: 1, Class: 2, IsCompound: false, Bytes: []byte{1, 2, 3}}, "8103010203"},
-	{testSET([]int{10}), "310302010a"},
-	{omitEmptyTest{[]string{}}, "3000"},
-	{omitEmptyTest{[]string{"1"}}, "30053003130131"},
-	{"Σ", "0c02cea3"},
-	{defaultTest{0}, "3003020100"},
-	{defaultTest{1}, "3000"},
-	{defaultTest{2}, "3003020102"},
-	{applicationTest{1, 2}, "30084001016103020102"},
-	{privateTest{1, 2, 3, 4}, "3011c00101e103020102df1f0103df81000104"},
-	{numericStringTest{"1 9"}, "30051203312039"},
-}
-
 func TestMarshal(t *testing.T) {
-	for i, test := range marshalTests {
-		data, err := Marshal(test.in)
-		if err != nil {
-			t.Errorf("#%d failed: %s", i, err)
-		}
-		out, _ := hex.DecodeString(test.out)
-		if !bytes.Equal(out, data) {
-			t.Errorf("#%d got: %x want %x\n\t%q\n\t%q", i, data, out, data, out)
+	marshalTests := []struct {
+		name string
+		in   any
+		out  string
+	}{
+		{"ShouldHandleInteger", 10, "02010a"},
+		{"ShouldHandleIntegerBeforeRuneSelf", 127, "02017f"},
+		{"ShouldHandleIntegerAfterRuneSelf", 128, "02020080"},
+		{"ShouldHandleNegativeInteger128", -128, "020180"},
+		{"ShouldHandleNegativeInteger129", -129, "0202ff7f"},
+		{"ShouldHandleIntStruct", intStruct{64}, "3003020140"},
+		{"ShouldHandleBigIntStruct", bigIntStruct{big.NewInt(0x123456)}, "30050203123456"},
+		{"ShouldHandleTwoIntStruct", twoIntStruct{64, 65}, "3006020140020141"},
+		{"ShouldHandleNestedStruct", nestedStruct{intStruct{127}}, "3005300302017f"},
+		{"ShouldHandleBytes", []byte{1, 2, 3}, "0403010203"},
+		{"ShouldHandleImplicitTags", implicitTagTest{64}, "3003850140"},
+		{"ShouldHandleExplicitTags", explicitTagTest{64}, "3005a503020140"},
+		{"ShouldHandleFlags", flagTest{true}, "30028000"},
+		{"ShouldHandleFlagsFalse", flagTest{false}, "3000"},
+		{"ShouldHandleTimeZero", time.Unix(0, 0).UTC(), "170d3730303130313030303030305a"},
+		{"ShouldHandleTimeReal", time.Unix(1258325776, 0).UTC(), "170d3039313131353232353631365a"},
+		{"ShouldHandleTimeNotUTC", time.Unix(1258325776, 0).In(PST), "17113039313131353134353631362d30383030"},
+		{"ShouldHandleTimeFarInFuture", farFuture(), "180f32313030303430353132303130315a"},
+		{"ShouldHandleGeneralizedTime", generalizedTimeTest{time.Unix(1258325776, 0).UTC()}, "3011180f32303039313131353232353631365a"},
+		{"ShouldHandleBitString", BitString{[]byte{0x80}, 1}, "03020780"},
+		{"ShouldHandleBitStringLength", BitString{[]byte{0x81, 0xf0}, 12}, "03030481f0"},
+		{"ShouldHandleOIDShort", ObjectIdentifier([]int{1, 2, 3, 4}), "06032a0304"},
+		{"ShouldHandleOIDLong", ObjectIdentifier([]int{1, 2, 840, 133549, 1, 1, 5}), "06092a864888932d010105"},
+		{"ShouldHandleOIDTiny", ObjectIdentifier([]int{2, 100, 3}), "0603813403"},
+		{"ShouldHandleString", "test", "130474657374"},
+		{"ShouldHandleLongString",
+			"" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // This is 127 times 'x'
+			"137f" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"78787878787878787878787878787878787878787878787878787878787878",
+		},
+		{"ShouldHandleLongerString",
+			"" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" +
+				"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", // This is 128 times 'x'
+			"138180" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"7878787878787878787878787878787878787878787878787878787878787878" +
+				"7878787878787878787878787878787878787878787878787878787878787878",
+		},
+		{"ShouldHandleIA5String", ia5StringTest{"test"}, "3006160474657374"},
+		{"ShouldHandleGeneralString", generalStringTest{"test"}, "30061b0474657374"},
+		{"ShouldHandleRawValue", optionalRawValueTest{}, "3000"},
+		{"ShouldHandlePrintableString", printableStringTest{"test"}, "3006130474657374"},
+		{"ShouldHandlePrintableStringWithSymbols", printableStringTest{"test*"}, "30071305746573742a"},
+		{"ShouldHandleGenericString", genericStringTest{"test"}, "3006130474657374"},
+		{"ShouldHandleGenericStringWithSymbols", genericStringTest{"test*"}, "30070c05746573742a"},
+		{"ShouldHandleGenericStringWithAmpersand", genericStringTest{"test&"}, "30070c057465737426"},
+		{"ShouldHandleRawContentsNil", rawContentsStruct{nil, 64}, "3003020140"},
+		{"ShouldHandleRawContents", rawContentsStruct{[]byte{0x30, 3, 1, 2, 3}, 64}, "3003010203"},
+		{"ShouldHandleRawValue", RawValue{Tag: 1, Class: 2, IsCompound: false, Bytes: []byte{1, 2, 3}}, "8103010203"},
+		{"ShouldHandleSet", testSET([]int{10}), "310302010a"},
+		{"ShouldHandleOmitEmpty", omitEmptyTest{[]string{}}, "3000"},
+		{"ShouldHandleOmitEmptyNotEmpty", omitEmptyTest{[]string{"1"}}, "30053003130131"},
+		{"ShouldHandleMathematicalSymbol", "Σ", "0c02cea3"},
+		{"ShouldHandleDefaults", defaultTest{0}, "3003020100"},
+		{"ShouldHandleDefaultsAlt", defaultTest{1}, "3000"},
+		{"ShouldHandleDefaultsAltAlt", defaultTest{2}, "3003020102"},
+		{"ShouldHandleApplication", applicationTest{1, 2}, "30084001016103020102"},
+		{"ShouldHandlePrivate", privateTest{1, 2, 3, 4}, "3011c00101e103020102df1f0103df81000104"},
+		{"ShouldHandleNumericString", numericStringTest{"1 9"}, "30051203312039"},
+	}
 
-		}
+	for _, tc := range marshalTests {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := Marshal(tc.in)
+			assert.NoError(t, err)
+
+			out, _ := hex.DecodeString(tc.out)
+			assert.Equal(t, data, out)
+		})
 	}
 }
 
@@ -332,16 +336,6 @@ func TestIssue68241(t *testing.T) {
 		}
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("#%d Unmarshal, got: %v, want: %v", i, got, want)
-		}
-	}
-}
-
-func BenchmarkMarshal(b *testing.B) {
-	b.ReportAllocs()
-
-	for i := 0; i < b.N; i++ {
-		for _, test := range marshalTests {
-			Marshal(test.in)
 		}
 	}
 }

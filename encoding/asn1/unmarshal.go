@@ -630,7 +630,7 @@ func parseTagAndLength(bytes []byte, initOffset int) (ret tagAndLength, offset i
 // parseSequenceOf is used for SEQUENCE OF and SET OF values. It tries to parse
 // a number of ASN.1 values from the given byte slice and returns them as a
 // slice of Go values of the given type.
-func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type) (ret reflect.Value, err error) {
+func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type, opts *unmarshalOpts) (ret reflect.Value, err error) {
 	matchAny, expectedTag, compoundType, ok := getUniversalType(elemType)
 	if !ok {
 		err = StructuralError{"unknown Go type for slice"}
@@ -679,7 +679,7 @@ func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type
 	offset := 0
 	for i := 0; i < numElements; i++ {
 		ret = reflect.Append(ret, reflect.Zero(elemType))
-		offset, err = parseField(ret.Index(i), bytes, offset, params)
+		offset, err = parseField(ret.Index(i), bytes, offset, params, opts)
 		if err != nil {
 			return
 		}
@@ -707,7 +707,7 @@ func invalidLength(offset, length, sliceLength int) bool {
 // parseField is the main parsing function. Given a byte slice and an offset
 // into the array, it will try to parse a suitable ASN.1 value out and store it
 // in the given Value.
-func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParameters) (offset int, err error) {
+func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParameters, opts *unmarshalOpts) (offset int, err error) {
 	offset = initOffset
 	fieldType := v.Type()
 
@@ -740,8 +740,12 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 				result, err = parsePrintableString(innerBytes)
 			case TagNumericString:
 				result, err = parseNumericString(innerBytes)
-			case TagIA5String, TagGeneralString:
+			case TagIA5String:
 				result, err = parseIA5String(innerBytes)
+			case TagGeneralString:
+				if opts.allowTypeGeneralString {
+					result, err = parseIA5String(innerBytes)
+				}
 			case TagT61String:
 				result, err = parseT61String(innerBytes)
 			case TagUTF8String:
@@ -978,7 +982,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			if i == 0 && field.Type == rawContentsType {
 				continue
 			}
-			innerOffset, err = parseField(val.Field(i), innerBytes, innerOffset, parseFieldParameters(field.Tag.Get("asn1")))
+			innerOffset, err = parseField(val.Field(i), innerBytes, innerOffset, parseFieldParameters(field.Tag.Get("asn1")), opts)
 			if err != nil {
 				return
 			}
@@ -994,7 +998,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			reflect.Copy(val, reflect.ValueOf(innerBytes))
 			return
 		}
-		newSlice, err1 := parseSequenceOf(innerBytes, sliceType, sliceType.Elem())
+		newSlice, err1 := parseSequenceOf(innerBytes, sliceType, sliceType.Elem(), opts)
 		if err1 == nil {
 			val.Set(newSlice)
 		}
@@ -1138,8 +1142,8 @@ func setDefaultValue(v reflect.Value, params fieldParameters) (ok bool) {
 //
 // Other ASN.1 types are not supported; if it encounters them,
 // Unmarshal returns a parse error.
-func Unmarshal(b []byte, val any) (rest []byte, err error) {
-	return UnmarshalWithParams(b, val, "")
+func Unmarshal(b []byte, val any, opts ...UnmarshalOpt) (rest []byte, err error) {
+	return UnmarshalWithParams(b, val, "", opts...)
 }
 
 // An invalidUnmarshalError describes an invalid argument passed to Unmarshal.
@@ -1161,12 +1165,18 @@ func (e *invalidUnmarshalError) Error() string {
 
 // UnmarshalWithParams allows field parameters to be specified for the
 // top-level element. The form of the params is the same as the field tags.
-func UnmarshalWithParams(b []byte, val any, params string) (rest []byte, err error) {
+func UnmarshalWithParams(b []byte, val any, params string, opts ...UnmarshalOpt) (rest []byte, err error) {
+	o := &unmarshalOpts{}
+
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	v := reflect.ValueOf(val)
 	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return nil, &invalidUnmarshalError{reflect.TypeOf(val)}
 	}
-	offset, err := parseField(v.Elem(), b, 0, parseFieldParameters(params))
+	offset, err := parseField(v.Elem(), b, 0, parseFieldParameters(params), o)
 	if err != nil {
 		return nil, err
 	}

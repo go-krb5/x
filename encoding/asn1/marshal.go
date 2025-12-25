@@ -455,7 +455,7 @@ func stripTagAndLength(in []byte) []byte {
 	return in[offset:]
 }
 
-func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error) {
+func makeBody(value reflect.Value, params fieldParameters, opts *marshalOpts) (e encoder, err error) {
 	switch value.Type() {
 	case flagType:
 		return bytesEncoder(nil), nil
@@ -520,11 +520,11 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 		case 0:
 			return bytesEncoder(nil), nil
 		case 1:
-			return makeField(v.Field(startingField), parseFieldParameters(t.Field(startingField).Tag.Get("asn1")))
+			return makeField(v.Field(startingField), parseFieldParameters(t.Field(startingField).Tag.Get("asn1")), opts)
 		default:
 			m := make([]encoder, n1)
 			for i := 0; i < n1; i++ {
-				m[i], err = makeField(v.Field(i+startingField), parseFieldParameters(t.Field(i+startingField).Tag.Get("asn1")))
+				m[i], err = makeField(v.Field(i+startingField), parseFieldParameters(t.Field(i+startingField).Tag.Get("asn1")), opts)
 				if err != nil {
 					return nil, err
 				}
@@ -540,16 +540,21 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 
 		var fp fieldParameters
 
+		if opts.slicePreserveTypes {
+			fp.stringType = params.stringType
+			fp.timeType = params.timeType
+		}
+
 		switch l := v.Len(); l {
 		case 0:
 			return bytesEncoder(nil), nil
 		case 1:
-			return makeField(v.Index(0), fp)
+			return makeField(v.Index(0), fp, opts)
 		default:
 			m := make([]encoder, l)
 
 			for i := 0; i < l; i++ {
-				m[i], err = makeField(v.Index(i), fp)
+				m[i], err = makeField(v.Index(i), fp, opts)
 				if err != nil {
 					return nil, err
 				}
@@ -576,13 +581,13 @@ func makeBody(value reflect.Value, params fieldParameters) (e encoder, err error
 	return nil, StructuralError{"unknown Go type"}
 }
 
-func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
+func makeField(v reflect.Value, params fieldParameters, opts *marshalOpts) (e encoder, err error) {
 	if !v.IsValid() {
 		return nil, fmt.Errorf("asn1: cannot marshal nil value")
 	}
 	// If the field is an interface{} then recurse into it.
 	if v.Kind() == reflect.Interface && v.Type().NumMethod() == 0 {
-		return makeField(v.Elem(), params)
+		return makeField(v.Elem(), params, opts)
 	}
 
 	if v.Kind() == reflect.Slice && v.Len() == 0 && params.omitEmpty {
@@ -630,7 +635,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 		return nil, StructuralError{"explicit time type given to non-time member"}
 	}
 
-	if params.stringType != 0 && !(tag == TagPrintableString || (v.Kind() == reflect.Slice && tag == TagSequence && v.Type().Elem().Kind() == reflect.String)) {
+	if params.stringType != 0 && tag != TagPrintableString && (!opts.sliceAllowStrings || v.Kind() != reflect.Slice || tag != TagSequence || v.Type().Elem().Kind() != reflect.String) {
 		return nil, StructuralError{"explicit string type given to non-string member"}
 	}
 
@@ -677,7 +682,7 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 
 	t := new(taggedEncoder)
 
-	t.body, err = makeBody(v, params)
+	t.body, err = makeBody(v, params, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -726,20 +731,27 @@ func makeField(v reflect.Value, params fieldParameters) (e encoder, err error) {
 // used:
 //
 //	ia5:         causes strings to be marshaled as ASN.1, IA5String values
+//	general:     causes strings to be marshaled as ASN.1, GeneralString values
 //	omitempty:   causes empty slices to be skipped
 //	printable:   causes strings to be marshaled as ASN.1, PrintableString values
 //	utf8:        causes strings to be marshaled as ASN.1, UTF8String values
 //	numeric:     causes strings to be marshaled as ASN.1, NumericString values
 //	utc:         causes time.Time to be marshaled as ASN.1, UTCTime values
 //	generalized: causes time.Time to be marshaled as ASN.1, GeneralizedTime values
-func Marshal(val any) ([]byte, error) {
-	return MarshalWithParams(val, "")
+func Marshal(val any, opts ...MarshalOpt) ([]byte, error) {
+	return MarshalWithParams(val, "", opts...)
 }
 
 // MarshalWithParams allows field parameters to be specified for the
 // top-level element. The form of the params is the same as the field tags.
-func MarshalWithParams(val any, params string) ([]byte, error) {
-	e, err := makeField(reflect.ValueOf(val), parseFieldParameters(params))
+func MarshalWithParams(val any, params string, opts ...MarshalOpt) ([]byte, error) {
+	o := &marshalOpts{}
+
+	for _, opt := range opts {
+		opt(o)
+	}
+
+	e, err := makeField(reflect.ValueOf(val), parseFieldParameters(params), o)
 	if err != nil {
 		return nil, err
 	}
