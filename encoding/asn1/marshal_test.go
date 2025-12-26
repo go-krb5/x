@@ -60,7 +60,7 @@ type ia5StringTest struct {
 }
 
 type generalStringTest struct {
-	A string `asn1:"generalstring"`
+	A string `asn1:"general"`
 }
 
 type printableStringTest struct {
