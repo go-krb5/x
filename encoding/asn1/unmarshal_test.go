@@ -67,7 +67,7 @@ var int64TestData = []int64Test{
 
 func TestParseInt64(t *testing.T) {
 	for i, test := range int64TestData {
-		ret, err := parseInt64(test.in)
+		ret, err := parseInt64(test.in, false)
 		if (err == nil) != test.ok {
 			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
 		}
@@ -100,7 +100,7 @@ var int32TestData = []int32Test{
 
 func TestParseInt32(t *testing.T) {
 	for i, test := range int32TestData {
-		ret, err := parseInt32(test.in)
+		ret, err := parseInt32(test.in, false)
 		if (err == nil) != test.ok {
 			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
 		}
@@ -128,7 +128,7 @@ var bigIntTests = []struct {
 
 func TestParseBigInt(t *testing.T) {
 	for i, test := range bigIntTests {
-		ret, err := parseBigInt(test.in)
+		ret, err := parseBigInt(test.in, false)
 		if (err == nil) != test.ok {
 			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
 		}

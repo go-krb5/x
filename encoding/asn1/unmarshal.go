@@ -79,14 +79,17 @@ func parseBool(bytes []byte) (ret bool, err error) {
 
 // checkInteger returns nil if the given bytes are a valid DER-encoded
 // INTEGER and an error otherwise.
-func checkInteger(bytes []byte) error {
+func checkInteger(bytes []byte, allowBER bool) error {
 	if len(bytes) == 0 {
 		return StructuralError{"empty integer"}
+	}
+	if allowBER {
+		return nil
 	}
 	if len(bytes) == 1 {
 		return nil
 	}
-	if (bytes[0] == 0 && bytes[1]&0x80 == 0) || (bytes[0] == 0xff && bytes[1]&0x80 == 0x80) {
+	if (bytes[0] == 0x00 && bytes[1]&0x80 == 0x00) || (bytes[0] == 0xff && bytes[1]&0x80 == 0x80) {
 		return StructuralError{"integer not minimally-encoded"}
 	}
 	return nil
@@ -94,11 +97,11 @@ func checkInteger(bytes []byte) error {
 
 // parseInt64 treats the given bytes as a big-endian, signed integer and
 // returns the result.
-func parseInt64(bytes []byte) (ret int64, err error) {
-	err = checkInteger(bytes)
-	if err != nil {
+func parseInt64(bytes []byte, allowBER bool) (ret int64, err error) {
+	if err = checkInteger(bytes, allowBER); err != nil {
 		return
 	}
+
 	if len(bytes) > 8 {
 		// We'll overflow an int64 in this case.
 		err = StructuralError{"integer too large"}
@@ -117,11 +120,8 @@ func parseInt64(bytes []byte) (ret int64, err error) {
 
 // parseInt32 treats the given bytes as a big-endian, signed integer and returns
 // the result.
-func parseInt32(bytes []byte) (int32, error) {
-	if err := checkInteger(bytes); err != nil {
-		return 0, err
-	}
-	ret64, err := parseInt64(bytes)
+func parseInt32(bytes []byte, ber bool) (int32, error) {
+	ret64, err := parseInt64(bytes, ber)
 	if err != nil {
 		return 0, err
 	}
@@ -135,8 +135,8 @@ var bigOne = big.NewInt(1)
 
 // parseBigInt treats the given bytes as a big-endian, signed integer and returns
 // the result.
-func parseBigInt(bytes []byte) (*big.Int, error) {
-	if err := checkInteger(bytes); err != nil {
+func parseBigInt(bytes []byte, allowBER bool) (*big.Int, error) {
+	if err := checkInteger(bytes, allowBER); err != nil {
 		return nil, err
 	}
 	ret := new(big.Int)
@@ -751,7 +751,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			case TagUTF8String:
 				result, err = parseUTF8String(innerBytes)
 			case TagInteger:
-				result, err = parseInt64(innerBytes)
+				result, err = parseInt64(innerBytes, opts.allowBERIntegers)
 			case TagBitString:
 				result, err = parseBitString(innerBytes)
 			case TagOID:
@@ -919,7 +919,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 		*v, err = parseGeneralizedTime(innerBytes)
 		return
 	case *Enumerated:
-		parsedInt, err1 := parseInt32(innerBytes)
+		parsedInt, err1 := parseInt32(innerBytes, opts.allowBERIntegers)
 		if err1 == nil {
 			*v = Enumerated(parsedInt)
 		}
@@ -929,7 +929,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 		*v = true
 		return
 	case **big.Int:
-		parsedInt, err1 := parseBigInt(innerBytes)
+		parsedInt, err1 := parseBigInt(innerBytes, opts.allowBERIntegers)
 		if err1 == nil {
 			*v = parsedInt
 		}
@@ -946,13 +946,13 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 		return
 	case reflect.Int, reflect.Int32, reflect.Int64:
 		if val.Type().Size() == 4 {
-			parsedInt, err1 := parseInt32(innerBytes)
+			parsedInt, err1 := parseInt32(innerBytes, opts.allowBERIntegers)
 			if err1 == nil {
 				val.SetInt(int64(parsedInt))
 			}
 			err = err1
 		} else {
-			parsedInt, err1 := parseInt64(innerBytes)
+			parsedInt, err1 := parseInt64(innerBytes, opts.allowBERIntegers)
 			if err1 == nil {
 				val.SetInt(parsedInt)
 			}
