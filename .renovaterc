@@ -4,7 +4,6 @@
     "config:recommended",
     ":semanticCommitTypeAll(build)",
     ":separatePatchReleases",
-    "workarounds:doNotUpgradeFromAlpineStableToEdge"
   ],
   "branchPrefix": "renovate-",
   "rebaseWhen": "conflicted",
@@ -13,14 +12,15 @@
     ":semanticPrefixFixDepsChoreOthers",
     "workarounds:all"
   ],
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 100,
   "enabledManagers": [
+    "docker-compose",
+    "dockerfile",
     "github-actions",
     "gomod",
+    "npm"
   ],
-  "labels": [
-    "dependencies"
-  ],
-  "packageRules": [],
   "postUpdateOptions": [
     "gomodTidy"
   ]
