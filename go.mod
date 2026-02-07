@@ -7,7 +7,7 @@ toolchain go1.25.7
 require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/net v0.48.0
+	golang.org/x/net v0.49.0
 )
 
 require (
