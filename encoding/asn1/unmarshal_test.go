@@ -16,6 +16,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type boolTest struct {
@@ -44,109 +47,246 @@ func TestParseBool(t *testing.T) {
 	}
 }
 
-type int64Test struct {
-	in  []byte
-	ok  bool
-	out int64
-}
-
-var int64TestData = []int64Test{
-	{[]byte{0x00}, true, 0},
-	{[]byte{0x7f}, true, 127},
-	{[]byte{0x00, 0x80}, true, 128},
-	{[]byte{0x01, 0x00}, true, 256},
-	{[]byte{0x80}, true, -128},
-	{[]byte{0xff, 0x7f}, true, -129},
-	{[]byte{0xff}, true, -1},
-	{[]byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, true, -9223372036854775808},
-	{[]byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, false, 0},
-	{[]byte{}, false, 0},
-	{[]byte{0x00, 0x7f}, false, 0},
-	{[]byte{0xff, 0xf0}, false, 0},
-}
-
 func TestParseInt64(t *testing.T) {
-	for i, test := range int64TestData {
-		ret, err := parseInt64(test.in)
-		if (err == nil) != test.ok {
-			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
-		}
-		if test.ok && ret != test.out {
-			t.Errorf("#%d: Bad result: %v (expected %v)", i, ret, test.out)
-		}
+	testCases := []struct {
+		name string
+		in   []byte
+		ok   bool
+		out  int64
+	}{
+		{"ShouldHandleZero", []byte{0x00}, true, 0},
+		{"ShouldHandle127", []byte{0x7f}, true, 127},
+		{"ShouldHandle128", []byte{0x00, 0x80}, true, 128},
+		{"ShouldHandle256", []byte{0x01, 0x00}, true, 256},
+		{"ShouldHandleNegative128", []byte{0x80}, true, -128},
+		{"ShouldHandleNegative129", []byte{0xff, 0x7f}, true, -129},
+		{"ShouldHandleNegative1", []byte{0xff}, true, -1},
+		{"ShouldHandleShouldHandleLargeInt64", []byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, true, -9223372036854775808},
+		{"ShouldNotHandleZeroBytesTrailing", []byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, false, 0},
+		{"ShouldNotHandleEmptyArray", []byte{}, false, 0},
+		{"ShouldNotHandleBERPositiveInt64Leading00", []byte{0x00, 0x7f}, false, 0},
+		{"ShouldHandleDERPositiveInteger", []byte{0x7f}, true, 127},
+		{"ShouldNotHandleBERNegativeInt64LeadingFF", []byte{0xff, 0xf0}, false, 0},
+		{"ShouldHandleDERNegativeInteger", []byte{0xf0}, true, -16},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseInt64(tc.in, false)
+			if tc.ok {
+				require.NoError(t, err)
+				assert.Equal(t, tc.out, ret)
+			} else {
+				assert.Error(t, err)
+			}
+		})
 	}
 }
 
-type int32Test struct {
-	in  []byte
-	ok  bool
-	out int32
-}
+func TestParseInt64BER(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   []byte
+		ok   bool
+		out  int64
+	}{
+		{"ShouldHandleZero", []byte{0x00}, true, 0},
+		{"ShouldHandle127", []byte{0x7f}, true, 127},
+		{"ShouldHandle128", []byte{0x00, 0x80}, true, 128},
+		{"ShouldHandle256", []byte{0x01, 0x00}, true, 256},
+		{"ShouldHandleNegative128", []byte{0x80}, true, -128},
+		{"ShouldHandleNegative129", []byte{0xff, 0x7f}, true, -129},
+		{"ShouldHandleNegative1", []byte{0xff}, true, -1},
+		{"ShouldHandleShouldHandleLargeInt64", []byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, true, -9223372036854775808},
+		{"ShouldNotHandleZeroBytesTrailing", []byte{0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, false, 0},
+		{"ShouldNotHandleEmptyArray", []byte{}, false, 0},
+		{"ShouldHandleBERPositiveInt64Leading00", []byte{0x00, 0x7f}, true, 127},
+		{"ShouldHandleDERPositiveInt64", []byte{0x7f}, true, 127},
+		{"ShouldHandleBERNegativeInt64LeadingFF", []byte{0xff, 0xf0}, true, -16},
+		{"ShouldHandleDERNegativeInteger", []byte{0xf0}, true, -16},
+	}
 
-var int32TestData = []int32Test{
-	{[]byte{0x00}, true, 0},
-	{[]byte{0x7f}, true, 127},
-	{[]byte{0x00, 0x80}, true, 128},
-	{[]byte{0x01, 0x00}, true, 256},
-	{[]byte{0x80}, true, -128},
-	{[]byte{0xff, 0x7f}, true, -129},
-	{[]byte{0xff}, true, -1},
-	{[]byte{0x80, 0x00, 0x00, 0x00}, true, -2147483648},
-	{[]byte{0x80, 0x00, 0x00, 0x00, 0x00}, false, 0},
-	{[]byte{}, false, 0},
-	{[]byte{0x00, 0x7f}, false, 0},
-	{[]byte{0xff, 0xf0}, false, 0},
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseInt64(tc.in, true)
+			if tc.ok {
+				require.NoError(t, err)
+				assert.Equal(t, tc.out, ret)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
 }
 
 func TestParseInt32(t *testing.T) {
-	for i, test := range int32TestData {
-		ret, err := parseInt32(test.in)
-		if (err == nil) != test.ok {
-			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
-		}
-		if test.ok && ret != test.out {
-			t.Errorf("#%d: Bad result: %v (expected %v)", i, ret, test.out)
-		}
+	testCases := []struct {
+		name string
+		in   []byte
+		ok   bool
+		out  int32
+	}{
+		{"ShouldHandleZero", []byte{0x00}, true, 0},
+		{"ShouldHandle127", []byte{0x7f}, true, 127},
+		{"ShouldHandle128", []byte{0x00, 0x80}, true, 128},
+		{"ShouldHandle256", []byte{0x01, 0x00}, true, 256},
+		{"ShouldHandleNegative128", []byte{0x80}, true, -128},
+		{"ShouldHandleNegative129", []byte{0xff, 0x7f}, true, -129},
+		{"ShouldHandleNegative1", []byte{0xff}, true, -1},
+		{"ShouldHandleNegative2147483648", []byte{0x80, 0x00, 0x00, 0x00}, true, -2147483648},
+		{"ShouldNotHandleZeroBytes", []byte{0x80, 0x00, 0x00, 0x00, 0x00}, false, 0},
+		{"ShouldNotHandleEmptyBytes", []byte{}, false, 0},
+		{"ShouldNotHandleBERInteger", []byte{0x00, 0x7f}, false, 0},
+		{"ShouldNotHandleBERNegativeInteger", []byte{0xff, 0xf0}, false, 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseInt32(tc.in, false)
+			if tc.ok {
+				require.NoError(t, err)
+
+				assert.Equal(t, tc.out, ret)
+			} else {
+				assert.Error(t, err)
+			}
+		})
 	}
 }
 
-var bigIntTests = []struct {
-	in     []byte
-	ok     bool
-	base10 string
-}{
-	{[]byte{0xff}, true, "-1"},
-	{[]byte{0x00}, true, "0"},
-	{[]byte{0x01}, true, "1"},
-	{[]byte{0x00, 0xff}, true, "255"},
-	{[]byte{0xff, 0x00}, true, "-256"},
-	{[]byte{0x01, 0x00}, true, "256"},
-	{[]byte{}, false, ""},
-	{[]byte{0x00, 0x7f}, false, ""},
-	{[]byte{0xff, 0xf0}, false, ""},
+func TestParseInt32BER(t *testing.T) {
+	testCases := []struct {
+		name string
+		in   []byte
+		ok   bool
+		out  int32
+	}{
+		{"ShouldHandleZero", []byte{0x00}, true, 0},
+		{"ShouldHandle127", []byte{0x7f}, true, 127},
+		{"ShouldHandle128", []byte{0x00, 0x80}, true, 128},
+		{"ShouldHandle256", []byte{0x01, 0x00}, true, 256},
+		{"ShouldHandleNegative128", []byte{0x80}, true, -128},
+		{"ShouldHandleNegative129", []byte{0xff, 0x7f}, true, -129},
+		{"ShouldHandleNegative1", []byte{0xff}, true, -1},
+		{"ShouldHandleNegative2147483648", []byte{0x80, 0x00, 0x00, 0x00}, true, -2147483648},
+		{"ShouldNotHandleZeroBytes", []byte{0x80, 0x00, 0x00, 0x00, 0x00}, false, 0},
+		{"ShouldNotHandleEmptyBytes", []byte{}, false, 0},
+		{"ShouldNotHandleBERInteger", []byte{0x00, 0x7f}, true, 127},
+		{"ShouldNotHandleBERNegativeInteger", []byte{0xff, 0xf0}, true, -16},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseInt32(tc.in, true)
+			if tc.ok {
+				require.NoError(t, err)
+
+				assert.Equal(t, tc.out, ret)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
 }
 
 func TestParseBigInt(t *testing.T) {
-	for i, test := range bigIntTests {
-		ret, err := parseBigInt(test.in)
-		if (err == nil) != test.ok {
-			t.Errorf("#%d: Incorrect error result (did fail? %v, expected: %v)", i, err == nil, test.ok)
-		}
-		if test.ok {
-			if ret.String() != test.base10 {
-				t.Errorf("#%d: bad result from %x, got %s want %s", i, test.in, ret.String(), test.base10)
+	testCases := []struct {
+		name   string
+		in     []byte
+		ok     bool
+		base10 string
+	}{
+		{"ShouldHandleSmallNegativeInteger", []byte{0xff}, true, "-1"},
+		{"ShouldHandleZero", []byte{0x00}, true, "0"},
+		{"ShouldHandleOne", []byte{0x01}, true, "1"},
+		{"ShouldHandle255", []byte{0x00, 0xff}, true, "255"},
+		{"ShouldHandleNegative255", []byte{0xff, 0x00}, true, "-256"},
+		{"ShouldHandle256", []byte{0x01, 0x00}, true, "256"},
+		{"ShouldNotHandleEmptyByteArray", []byte{}, false, ""},
+		{"ShouldNotHandleInvalidBERPositiveInteger", []byte{0x00, 0x7f}, false, ""},
+		{"ShouldNotHandleInvalidBERNegativeInteger", []byte{0xff, 0xf0}, false, ""},
+		{
+			"ShouldHandleActualBigInt",
+			[]byte{0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED, 0xFA, 0xCE, 0xBA, 0xAD, 0xF0, 0x0D, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x0F, 0xED, 0xCB, 0xA9, 0x87, 0x65, 0x43, 0x21, 0x10, 0xFF, 0xEE, 0xDD}, true,
+			"-15071654507544031798546391681896870062528267714731488578382837830474432254243",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseBigInt(tc.in, false)
+
+			if tc.ok {
+				require.NoError(t, err)
+				require.Equal(t, tc.base10, ret.String())
+
+				e, err := makeBigInt(ret)
+				require.NoError(t, err)
+
+				result := make([]byte, e.Len())
+				e.Encode(result)
+				if !bytes.Equal(result, tc.in) {
+					t.Errorf("got %x from marshaling %s, want %x", result, ret, tc.in)
+				}
+			} else {
+				assert.Error(t, err)
 			}
-			e, err := makeBigInt(ret)
-			if err != nil {
-				t.Errorf("%d: err=%q", i, err)
-				continue
+		})
+	}
+}
+
+func TestParseBigIntBER(t *testing.T) {
+	testCases := []struct {
+		name   string
+		in     []byte
+		out    []byte
+		ok     bool
+		base10 string
+	}{
+		{"ShouldHandleSmallNegativeInteger", []byte{0xff}, nil, true, "-1"},
+		{"ShouldHandleZero", []byte{0x00}, nil, true, "0"},
+		{"ShouldHandleOne", []byte{0x01}, nil, true, "1"},
+		{"ShouldHandle255", []byte{0x00, 0xff}, nil, true, "255"},
+		{"ShouldHandleNegative255", []byte{0xff, 0x00}, nil, true, "-256"},
+		{"ShouldHandle256", []byte{0x01, 0x00}, nil, true, "256"},
+		{"ShouldNotHandleEmptyByteArray", []byte{}, nil, false, ""},
+		{"ShouldHandleInvalidBERPositiveInteger", []byte{0x00, 0x7f}, []byte{0x7f}, true, "127"},
+		{"ShouldHandleInvalidDERPositiveInteger", []byte{0x7f}, nil, true, "127"},
+		{"ShouldHandleInvalidBERNegativeInteger", []byte{0xff, 0xf0}, []byte{0xf0}, true, "-16"},
+		{"ShouldHandleInvalidDERNegativeInteger", []byte{0xf0}, nil, true, "-16"},
+		{
+			"ShouldHandleActualBigInt",
+			[]byte{0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED, 0xFA, 0xCE, 0xBA, 0xAD, 0xF0, 0x0D, 0x12, 0x34, 0x56, 0x78, 0x9A, 0xBC, 0xDE, 0xF0, 0x0F, 0xED, 0xCB, 0xA9, 0x87, 0x65, 0x43, 0x21, 0x10, 0xFF, 0xEE, 0xDD},
+			nil,
+			true,
+			"-15071654507544031798546391681896870062528267714731488578382837830474432254243",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ret, err := parseBigInt(tc.in, true)
+
+			if tc.ok {
+				require.NoError(t, err)
+				require.Equal(t, tc.base10, ret.String())
+
+				e, err := makeBigInt(ret)
+				require.NoError(t, err)
+
+				result := make([]byte, e.Len())
+				e.Encode(result)
+
+				expected := tc.out
+				if expected == nil {
+					expected = tc.in
+				}
+
+				assert.Equal(t, expected, result)
+			} else {
+				assert.Error(t, err)
 			}
-			result := make([]byte, e.Len())
-			e.Encode(result)
-			if !bytes.Equal(result, test.in) {
-				t.Errorf("#%d: got %x from marshaling %s, want %x", i, result, ret, test.in)
-			}
-		}
+		})
 	}
 }
 
