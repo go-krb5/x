@@ -1,27 +1,40 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "constraints": {
+    "go": "1.26"
+  },
   "extends": [
     "config:recommended",
     ":semanticCommitTypeAll(build)",
-    ":separatePatchReleases",
+    ":separatePatchReleases"
   ],
-  "branchPrefix": "renovate-",
-  "rebaseWhen": "conflicted",
   "ignorePresets": [
+    ":combinePatchMinorReleases",
     ":prHourlyLimit2",
-    ":semanticPrefixFixDepsChoreOthers",
-    "workarounds:all"
+    ":semanticPrefixFixDepsChoreOthers"
   ],
-  "prConcurrentLimit": 10,
-  "prHourlyLimit": 100,
   "enabledManagers": [
-    "docker-compose",
-    "dockerfile",
-    "github-actions",
     "gomod",
-    "npm"
+    "github-actions"
   ],
   "postUpdateOptions": [
     "gomodTidy"
+  ],
+  "branchPrefix": "renovate-",
+  "rebaseWhen": "conflicted",
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 100,
+  "labels": [
+    "dependencies"
+  ],
+  "packageRules": [
+    {
+      "matchDatasources": [
+        "go"
+      ],
+      "addLabels": [
+        "go"
+      ]
+    }
   ]
 }
