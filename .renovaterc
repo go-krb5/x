@@ -18,7 +18,8 @@
     "github-actions"
   ],
   "postUpdateOptions": [
-    "gomodTidy"
+    "gomodTidy",
+    "gomodMassage"
   ],
   "branchPrefix": "renovate-",
   "rebaseWhen": "conflicted",
@@ -35,6 +36,16 @@
       "addLabels": [
         "go"
       ]
+    },
+    {
+      "matchUpdateTypes": [
+        "digest",
+        "minor",
+        "patch"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
     }
   ]
 }
