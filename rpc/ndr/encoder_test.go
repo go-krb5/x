@@ -291,3 +291,104 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+type structWithNilPointerSlice struct {
+	A uint32
+	B []uint32 `ndr:"pointer,conformant"`
+	C []uint32 `ndr:"pointer,conformant"`
+}
+
+// A nil pointer-tagged slice is a NULL NDR pointer and must encode as a zero
+// referent id, round-tripping back to nil, while a non-nil (even empty) slice
+// encodes as a present referent with array data. Distinguishing the two is
+// required so absent fields (e.g. a PAC's ExtraSIDs) are not mis-encoded as
+// present-but-empty.
+func TestEncodeNilPointerSlice(t *testing.T) {
+	orig := structWithNilPointerSlice{A: 7, B: nil, C: []uint32{1, 2}}
+	b, err := Marshal(&orig)
+	require.NoError(t, err, "could not marshal")
+
+	var got structWithNilPointerSlice
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got), "could not decode")
+
+	assert.Nil(t, got.B, "nil pointer slice must round-trip as nil (NULL pointer)")
+	assert.Equal(t, []uint32{1, 2}, got.C, "non-nil pointer slice must round-trip with its data")
+	assert.Equal(t, orig, got, "nil pointer slice round trip mismatch")
+}
+
+// TestEncodeNilPointerSliceReferentZero asserts the wire form directly: the
+// nil pointer's referent id is zero and the non-nil pointer's is not.
+func TestEncodeNilPointerSliceReferentZero(t *testing.T) {
+	b, err := Marshal(&structWithNilPointerSlice{A: 7, B: nil, C: []uint32{1, 2}})
+	require.NoError(t, err)
+	// Body layout after the 16-byte header: top-level referent (4), A uint32 (4),
+	// B referent (4) = 0, C referent (4) = non-zero.
+	require.GreaterOrEqual(t, len(b), 32)
+	bRef := binary.LittleEndian.Uint32(b[24:28])
+	cRef := binary.LittleEndian.Uint32(b[28:32])
+	assert.Equal(t, uint32(0), bRef, "nil pointer slice must emit a zero referent id")
+	assert.NotEqual(t, uint32(0), cRef, "non-nil pointer slice must emit a non-zero referent id")
+}
+
+type innerPointerValue struct {
+	X uint32
+	Y []uint32 `ndr:"conformant"`
+}
+
+type structWithValueTypePointer struct {
+	A uint32
+	S innerPointerValue `ndr:"pointer"`
+}
+
+// A value-type field tagged as an NDR pointer that holds its zero value is a
+// NULL pointer (e.g. an absent RPC_SID). It must encode as a zero referent and
+// round-trip unchanged — it must NOT come back as a present, populated struct.
+// A populated value-type pointer must round-trip as present.
+func TestEncodeZeroValueTypePointer(t *testing.T) {
+	orig := structWithValueTypePointer{A: 7} // S is the zero value -> NULL
+	b, err := Marshal(&orig)
+	require.NoError(t, err)
+
+	var got structWithValueTypePointer
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+	assert.Equal(t, orig, got, "zero value-type pointer round trip mismatch")
+	assert.Nil(t, got.S.Y, "zero value-type pointer must stay zero (nil inner slice)")
+
+	present := structWithValueTypePointer{A: 7, S: innerPointerValue{X: 5, Y: []uint32{1, 2}}}
+	pb, err := Marshal(&present)
+	require.NoError(t, err)
+
+	var gotPresent structWithValueTypePointer
+	require.NoError(t, NewDecoder(bytes.NewReader(pb)).Decode(&gotPresent))
+	assert.Equal(t, present, gotPresent, "present value-type pointer round trip mismatch")
+}
+
+// structWithZeroConformantInPointer exercises the case where a value-type
+// struct tagged as an NDR pointer contains a zero-element conformant slice.
+// When the parent struct was originally absent (NULL pointer), the decoder
+// leaves it as a zero value — including a nil SubSlice. The encoder then
+// encodes it as present (structs cannot be NULL) with a zero-max-count
+// conformant array, and the decoder must restore nil (not an empty slice) so
+// that reflect.DeepEqual round-trips work for absent pointer structs such as
+// the MS-PAC ResourceGroupDomainSID.
+type structWithZeroConformantInPointer struct {
+	Inner struct {
+		Count    uint32
+		SubSlice []uint32 `ndr:"conformant"`
+	} `ndr:"pointer"`
+}
+
+func TestEncodeZeroConformantInsidePointerStruct(t *testing.T) {
+	orig := structWithZeroConformantInPointer{}
+	// SubSlice is nil; Inner.Count is 0.
+
+	b, err := Marshal(&orig)
+	require.NoError(t, err, "could not marshal")
+
+	var got structWithZeroConformantInPointer
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got), "could not decode")
+
+	assert.Nil(t, got.Inner.SubSlice,
+		"zero-element conformant array must round-trip as nil, not an empty slice")
+	assert.Equal(t, orig, got, "zero-conformant-in-pointer-struct round trip mismatch")
+}

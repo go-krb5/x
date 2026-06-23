@@ -170,13 +170,22 @@ func (enc *Encoder) conformantScan(s interface{}, tag reflect.StructTag) error {
 }
 
 // isPointer establishes whether a field is an NDR pointer. If it is, a 4-byte
-// referent id is written inline (zero for a nil pointer) and, when non-nil, the
-// referent is queued for deferred writing after the current structure.
+// referent id is written inline and, when present, the referent is queued for
+// deferred writing after the current structure.
+//
+// A pointer-tagged field equal to its type's zero value is treated as a NULL
+// pointer (zero referent id). This covers nil pointers, slices and maps as well
+// as zero-value value types (e.g. an all-zero struct tagged as an NDR pointer,
+// such as an absent RPC_SID). It mirrors the decoder, which represents a NULL
+// pointer by leaving the field at its zero value: encoding the zero value as
+// NULL therefore round-trips. A present, fully-zero value type is invalid in
+// practice (e.g. an RPC_SID has Revision 1) and is indistinguishable from NULL
+// to the decoder, so this loses no recoverable information.
 func (enc *Encoder) isPointer(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) (bool, error) {
 	ndrTag := parseTags(tag)
 	if ndrTag.HasValue(TagPointer) {
 		ndrTag.delete(TagPointer)
-		if v.Kind() == reflect.Ptr && v.IsNil() {
+		if v.IsZero() {
 			if err := enc.writeUint32(0); err != nil {
 				return true, fmt.Errorf("could not write nil pointer: %v", err)
 			}
