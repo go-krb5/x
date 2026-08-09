@@ -782,6 +782,12 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 	if err != nil {
 		return
 	}
+	// explicitEnd is the offset just past the content of an explicit tag, taken
+	// from its declared length. It is recorded before the tag is unwrapped so
+	// that the inner element can be checked against it below; -1 means there is
+	// no explicit tag to check.
+	explicitEnd := -1
+
 	if params.explicit {
 		expectedClass := ClassContextSpecific
 		if params.application {
@@ -792,6 +798,11 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			return
 		}
 		if t.class == expectedClass && t.tag == *params.tag && (t.length == 0 || t.isCompound) {
+			if invalidLength(offset, t.length, len(bytes)) {
+				err = SyntaxError{"data truncated"}
+				return
+			}
+			explicitEnd = offset + t.length
 			if fieldType == rawValueType {
 				// The inner element should not be parsed for RawValues.
 			} else if t.length > 0 {
@@ -899,6 +910,21 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 	}
 	innerBytes := bytes[offset : offset+t.length]
 	offset += t.length
+
+	// The element just parsed came out of an explicit tag, so it must fit
+	// inside that tag's declared extent. Without this the outer length is
+	// decorative and corruption in it goes unnoticed.
+	//
+	// This deliberately allows the element to end early rather than requiring
+	// it to end exactly at explicitEnd. RFC 2743's InitialContextToken is an
+	// [APPLICATION 0] IMPLICIT SEQUENCE of a mech OID followed by an inner
+	// token, and callers read it by unmarshalling the OID with explicit
+	// parameters and continuing through the returned rest. Demanding an exact
+	// match would reject every GSSAPI token.
+	if explicitEnd >= 0 && offset > explicitEnd {
+		err = StructuralError{"inner element extends past its explicit tag"}
+		return
+	}
 
 	// We deal with the structures defined in this package first.
 	switch v := v.Addr().Interface().(type) {

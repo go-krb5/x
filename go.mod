@@ -2,12 +2,12 @@ module github.com/go-krb5/x
 
 go 1.25.0
 
-toolchain go1.26.3
+toolchain go1.26.5
 
 require (
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	golang.org/x/net v0.54.0
+	golang.org/x/net v0.57.0
 )
 
 require (
