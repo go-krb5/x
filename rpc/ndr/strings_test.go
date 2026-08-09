@@ -9,46 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-const (
-	TestStr         = "hello world!"
-	TestStrUTF16Hex = "680065006c006c006f00200077006f0072006c00640021000000" // little endian format
-)
-
-type TestStructWithVaryingString struct {
-	A string `ndr:"varying"`
-}
-
-type TestStructWithConformantVaryingString struct {
-	A string `ndr:"conformant,varying"`
-}
-
-type TestStructWithConformantVaryingStringUniArray struct {
-	A []string `ndr:"conformant,varying"`
-}
-
-// Should not have to specify varying tag
-type TestStructWithNonConformantStringUniArray struct {
-	A []string
-}
-
-type TestStructWithConformantVaryingStringMultiArray struct {
-	A [][][]string `ndr:"conformant,varying"`
-}
-
-// Should not have to specify varying tag
-type TestStructWithNonConformantStringMultiArray struct {
-	A [][][]string
-}
-
-// Strings are always varying but the array may not be
-type TestStructWithFixedStringUniArray struct {
-	A [4]string
-}
-
-type TestStructWithFixedStringMultiArray struct {
-	A [2][3][2]string
-}
-
 func Test_uint16SliceToString(t *testing.T) {
 	b, _ := hex.DecodeString(TestStrUTF16Hex)
 	var u []uint16
@@ -61,8 +21,8 @@ func Test_uint16SliceToString(t *testing.T) {
 
 func Test_readVaryingString(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))            // actual count of number of uint16 bytes
-	hexStr := TestHeader + "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex // header:offset(0):actual count:data
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	hexStr := TestHeader + "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
 	b, _ := hex.DecodeString(hexStr)
 	a := new(TestStructWithVaryingString)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -75,8 +35,8 @@ func Test_readVaryingString(t *testing.T) {
 
 func Test_readConformantVaryingString(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))                                     // actual count of number of uint16 bytes
-	hexStr := TestHeader + hex.EncodeToString(ac) + "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex // header:max:offset(0):actual count:data
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	hexStr := TestHeader + hex.EncodeToString(ac) + "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
 	b, _ := hex.DecodeString(hexStr)
 	a := new(TestStructWithConformantVaryingString)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -89,9 +49,9 @@ func Test_readConformantVaryingString(t *testing.T) {
 
 func Test_readConformantStringUniDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))                                                                             // actual count of number of uint16 bytes
-	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex                                                                               // offset(0):actual count:data
-	hexStr = TestHeader + "04000000" + hex.EncodeToString(ac) + "0000000004000000" + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr // header:1st dimension count(4):max for all strings:offset for 1st dim:actual for 1st dim:string array elements(4) with offset and actual counts. Need to include some bytes for alignment.
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
+	hexStr = TestHeader + "04000000" + hex.EncodeToString(ac) + "0000000004000000" + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr
 	b, _ := hex.DecodeString(hexStr)
 	a := new(TestStructWithConformantVaryingStringUniArray)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -109,8 +69,8 @@ func Test_readConformantStringUniDimensionalArray(t *testing.T) {
 
 func Test_readConformantStringMultiDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4)) // actual count of number of uint16 bytes
-	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex     // offset(0):actual count:data
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
 	var hexStr string
 	for i := 0; i < 12; i++ {
 		hexStr = hexStr + strb + "0000"
@@ -140,9 +100,9 @@ func Test_readConformantStringMultiDimensionalArray(t *testing.T) {
 
 func Test_readNonConformantStringUniDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))                                       // actual count of number of uint16 bytes
-	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex                                         // offset(0):actual count:data
-	hexStr = TestHeader + "0000000004000000" + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr // header:offset for 1st dim:actual for 1st dim:string array elements(4) with offset and actual counts. Need to include some bytes for alignment.
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
+	hexStr = TestHeader + "0000000004000000" + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr
 	b, _ := hex.DecodeString(hexStr)
 	a := new(TestStructWithNonConformantStringUniArray)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -160,8 +120,8 @@ func Test_readNonConformantStringUniDimensionalArray(t *testing.T) {
 
 func Test_readNonConformantStringMultiDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4)) // actual count of number of uint16 bytes
-	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex     // offset(0):actual count:data
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
 	var hexStr string
 	for i := 0; i < 12; i++ {
 		hexStr = hexStr + strb + "0000"
@@ -191,9 +151,9 @@ func Test_readNonConformantStringMultiDimensionalArray(t *testing.T) {
 
 func Test_readFixedStringUniDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))                  // actual count of number of uint16 bytes
-	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex                    // offset(0):actual count:data
-	hexStr = TestHeader + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr // header:offset for 1st dim:actual for 1st dim:string array elements(4) with offset and actual counts. Need to include some bytes for alignment.
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	hexStr := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
+	hexStr = TestHeader + hexStr + "0000" + hexStr + "0000" + hexStr + "0000" + hexStr
 	b, _ := hex.DecodeString(hexStr)
 	a := new(TestStructWithFixedStringUniArray)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -210,8 +170,8 @@ func Test_readFixedStringUniDimensionalArray(t *testing.T) {
 
 func Test_readFixedStringMultiDimensionalArray(t *testing.T) {
 	ac := make([]byte, 4, 4)
-	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4)) // actual count of number of uint16 bytes
-	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex     // offset(0):actual count:data
+	binary.LittleEndian.PutUint32(ac, uint32(len(TestStrUTF16Hex)/4))
+	strb := "00000000" + hex.EncodeToString(ac) + TestStrUTF16Hex
 	var hexStr string
 	for i := 0; i < 12; i++ {
 		hexStr = hexStr + strb + "0000"
@@ -237,4 +197,41 @@ func Test_readFixedStringMultiDimensionalArray(t *testing.T) {
 		},
 	}
 	assert.Equal(t, ar, a.A, "fixed multi-dimensional string array not as expected")
+}
+
+const (
+	TestStr         = "hello world!"
+	TestStrUTF16Hex = "680065006c006c006f00200077006f0072006c00640021000000"
+)
+
+type TestStructWithVaryingString struct {
+	A string `ndr:"varying,nullterminated"`
+}
+
+type TestStructWithConformantVaryingString struct {
+	A string `ndr:"conformant,varying,nullterminated"`
+}
+
+type TestStructWithConformantVaryingStringUniArray struct {
+	A []string `ndr:"conformant,varying,nullterminated"`
+}
+
+type TestStructWithNonConformantStringUniArray struct {
+	A []string `ndr:"nullterminated"`
+}
+
+type TestStructWithConformantVaryingStringMultiArray struct {
+	A [][][]string `ndr:"conformant,varying,nullterminated"`
+}
+
+type TestStructWithNonConformantStringMultiArray struct {
+	A [][][]string `ndr:"nullterminated"`
+}
+
+type TestStructWithFixedStringUniArray struct {
+	A [4]string `ndr:"nullterminated"`
+}
+
+type TestStructWithFixedStringMultiArray struct {
+	A [2][3][2]string `ndr:"nullterminated"`
 }

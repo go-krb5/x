@@ -3,17 +3,16 @@ package mstypes
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/go-krb5/x/rpc/ndr"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
-)
 
-const TestNDRHeader = "01100800cccccccca00400000000000000000200"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/go-krb5/x/rpc/ndr"
+)
 
 func TestFileTime(t *testing.T) {
 	t.Parallel()
-	//2007-02-22 17:00:01.6382155
 	tt := time.Date(2007, 2, 22, 17, 0, 1, 638215500, time.UTC)
 	ft := GetFileTime(tt)
 	assert.Equal(t, tt.Unix(), ft.Unix(), "Unix epoch time not as expected")
@@ -50,3 +49,5 @@ func TestDecodeFileTime(t *testing.T) {
 		assert.Equal(t, test.UnixNano, a.Time().UnixNano(), "Time value not as expected for test: %d", i+1)
 	}
 }
+
+const TestNDRHeader = "01100800cccccccca00400000000000000000200"

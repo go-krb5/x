@@ -1,12 +1,11 @@
 package ndr
 
 import (
+	"fmt"
 	"math"
+	"reflect"
 )
 
-// writeBool writes a byte representing a boolean.
-// NDR represents a Boolean as one octet: FALSE as a zero octet, TRUE as a
-// non-zero octet.
 func (enc *Encoder) writeBool(b bool) error {
 	if b {
 		return enc.writeUint8(1)
@@ -14,12 +13,10 @@ func (enc *Encoder) writeBool(b bool) error {
 	return enc.writeUint8(0)
 }
 
-// writeUint8 writes a byte representing an 8bit unsigned integer.
 func (enc *Encoder) writeUint8(i uint8) error {
 	return enc.buf.WriteByte(i)
 }
 
-// writeUint16 writes bytes representing a 16bit unsigned integer.
 func (enc *Encoder) writeUint16(i uint16) error {
 	enc.ensureAlignment(SizeUint16)
 	b := make([]byte, SizeUint16)
@@ -27,7 +24,6 @@ func (enc *Encoder) writeUint16(i uint16) error {
 	return enc.writeBytes(b)
 }
 
-// writeUint32 writes bytes representing a 32bit unsigned integer.
 func (enc *Encoder) writeUint32(i uint32) error {
 	enc.ensureAlignment(SizeUint32)
 	b := make([]byte, SizeUint32)
@@ -35,7 +31,6 @@ func (enc *Encoder) writeUint32(i uint32) error {
 	return enc.writeBytes(b)
 }
 
-// writeUint64 writes bytes representing a 64bit unsigned integer.
 func (enc *Encoder) writeUint64(i uint64) error {
 	enc.ensureAlignment(SizeUint64)
 	b := make([]byte, SizeUint64)
@@ -60,7 +55,6 @@ func (enc *Encoder) writeInt64(i int64) error {
 	return enc.writeUint64(uint64(i))
 }
 
-// https://en.wikipedia.org/wiki/IEEE_754-1985
 func (enc *Encoder) writeFloat32(f float32) error {
 	return enc.writeUint32(math.Float32bits(f))
 }
@@ -69,13 +63,29 @@ func (enc *Encoder) writeFloat64(f float64) error {
 	return enc.writeUint64(math.Float64bits(f))
 }
 
-// ensureAlignment pads the output stream with zero bytes so that the next
-// primitive of size n octets is aligned at an octet stream index that is a
-// multiple of n. This is the symmetric counterpart of the decoder skipping
-// alignment gaps. The index is relative to the start of the whole stream.
 func (enc *Encoder) ensureAlignment(n int) {
-	p := enc.buf.Len()
+	p := enc.base + enc.buf.Len()
 	if s := p % n; s != 0 {
 		enc.buf.Write(make([]byte, n-s))
 	}
+}
+
+func (enc *Encoder) writeEnum(v reflect.Value) error {
+	var i int64
+	switch v.Kind() {
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		u := v.Uint()
+		if u > math.MaxInt16 {
+			return fmt.Errorf("enum value %d does not fit in the 2 octets NDR uses for an enumerated type", u)
+		}
+		i = int64(u)
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		i = v.Int()
+		if i < math.MinInt16 || i > math.MaxInt16 {
+			return fmt.Errorf("enum value %d does not fit in the 2 octets NDR uses for an enumerated type", i)
+		}
+	default:
+		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())
+	}
+	return enc.writeInt16(int16(i))
 }
