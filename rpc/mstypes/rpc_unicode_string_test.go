@@ -5,19 +5,10 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/go-krb5/x/rpc/ndr"
 	"github.com/stretchr/testify/assert"
-)
 
-const (
-	TestRPCUnicodeStringBytes = "1200120004000200" + "01000000" + "0900000000000000090000007400650073007400750073006500720031000000"
-	TestRPCUnicodeStringValue = "testuser1"
+	"github.com/go-krb5/x/rpc/ndr"
 )
-
-type TestRPCUnicodeString struct {
-	RPCStr     RPCUnicodeString
-	OtherValue uint32
-}
 
 func Test_RPCUnicodeString(t *testing.T) {
 	a := new(TestRPCUnicodeString)
@@ -29,4 +20,14 @@ func Test_RPCUnicodeString(t *testing.T) {
 		t.Fatal(err)
 	}
 	assert.Equal(t, TestRPCUnicodeStringValue, a.RPCStr.Value, "String value not as expected")
+}
+
+const (
+	TestRPCUnicodeStringBytes = "1200120004000200" + "01000000" + "0900000000000000090000007400650073007400750073006500720031000000"
+	TestRPCUnicodeStringValue = "testuser1"
+)
+
+type TestRPCUnicodeString struct {
+	RPCStr     RPCUnicodeString
+	OtherValue uint32
 }
