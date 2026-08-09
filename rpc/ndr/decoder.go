@@ -3,6 +3,7 @@ package ndr
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"reflect"
@@ -15,16 +16,38 @@ const (
 	TagVarying    = "varying"
 	TagPointer    = "pointer"
 	TagPipe       = "pipe"
+	// TagNullTerminated marks a string whose wire representation carries a
+	// trailing NUL code unit. It affects encoding only: the decoder strips a
+	// trailing NUL whenever one is present. Without it a string is encoded as
+	// exactly its UTF-16 code units, which is the form used by the
+	// RPC_UNICODE_STRING buffers in an MS-PAC.
+	TagNullTerminated = "nullterminated"
+	// TagEnum marks a field that NDR represents as an enumerated type, which
+	// C706 14.2.4 defines as a signed short integer of 2 octets. Go models
+	// enums as named integer types that are commonly wider, so the wire width
+	// comes from this tag rather than from the Go type. MIDL's [v1_enum], which
+	// is 4 octets, is an untagged 32-bit field.
+	TagEnum = "enum"
 )
 
 // Decoder unmarshals NDR byte stream data into a Go struct representation
 type Decoder struct {
-	r             *bufio.Reader // source of the data
-	size          int           // initial size of bytes in buffer
+	// MaxObjectBufferLength bounds how many octets Decode will read for one
+	// top-level type. The object buffer length is declared by the stream, so
+	// honouring it verbatim would let a hostile peer dictate an arbitrarily
+	// large read. Zero selects defaultMaxObjectBuffer.
+	MaxObjectBufferLength int
+
+	src           *bufio.Reader // the octet stream
+	r             *bufio.Reader // current source: the stream for headers, the object buffer for a body
+	common        bool          // whether the stream's common header has been read
+	pos           int           // octets consumed; NDR alignment is relative to this index
+	limit         int           // stream index one past the end of the object buffer
+	objLen        int           // size of the object buffer
 	ch            CommonHeader  // NDR common header
 	ph            PrivateHeader // NDR private header
 	conformantMax []uint32      // conformant max values that were moved to the beginning of the structure
-	s             interface{}   // pointer to the structure being populated
+	s             any           // pointer to the structure being populated
 	current       []string      // keeps track of the current field being populated
 }
 
@@ -36,32 +59,93 @@ type deferedPtr struct {
 // NewDecoder creates a new instance of a NDR Decoder.
 func NewDecoder(r io.Reader) *Decoder {
 	dec := new(Decoder)
-	dec.r = bufio.NewReader(r)
-	dec.r.Peek(int(commonHeaderBytes)) // For some reason an operation is needed on the buffer to initialise it so Buffered() != 0
-	dec.size = dec.r.Buffered()
+	dec.src = bufio.NewReader(r)
+	dec.r = dec.src
 	return dec
 }
 
+// discard skips n octets of the stream, advancing the stream position.
+func (dec *Decoder) discard(n int) error {
+	m, err := dec.r.Discard(n)
+	dec.pos += m
+	if err != nil {
+		return fmt.Errorf("error discarding %d bytes from stream: %v", n, err)
+	}
+	return nil
+}
+
 // Decode unmarshals the NDR encoded bytes into the pointer of a struct provided.
-func (dec *Decoder) Decode(s interface{}) error {
+//
+// A Decoder reads one serialization stream. MS-RPCE 2.2.6 allows a stream to
+// carry several top-level types, so successive calls to Decode read successive
+// types: the first reads the stream's common header, and each call reads the
+// private header of the type that follows.
+func (dec *Decoder) Decode(s any) error {
 	dec.s = s
-	err := dec.readCommonHeader()
+	if v := getReflectValue(s); v.IsValid() {
+		if err := checkPipeUsage(v.Type(), reflect.StructTag("")); err != nil {
+			return Errorf("%v", err)
+		}
+	}
+
+	// Headers come from the octet stream itself, not from the previous type's
+	// object buffer.
+	dec.r = dec.src
+	if !dec.common {
+		if err := dec.readCommonHeader(); err != nil {
+			return err
+		}
+		dec.common = true
+	} else {
+		// Step over any padding of the preceding object buffer that its type
+		// did not consume; the stream is already positioned past it.
+		dec.pos = dec.limit
+	}
+
+	// The private header MUST be aligned on an 8-byte boundary.
+	dec.ensureAlignment(8)
+	err := dec.readPrivateHeader()
 	if err != nil {
 		return err
 	}
-	err = dec.readPrivateHeader()
-	if err != nil {
-		return err
+	if max := dec.maxObjectBuffer(); int64(dec.ph.ObjectBufferLength) > int64(max) {
+		return Errorf("object buffer length %d exceeds the maximum of %d octets; raise"+
+			" Decoder.MaxObjectBufferLength if a buffer this large is expected", dec.ph.ObjectBufferLength, max)
 	}
-	_, err = dec.r.Discard(4) //The next 4 bytes are an RPC unique pointer referent. We just skip these.
+
+	// Read the object buffer. Its declared length bounds the read and io.ReadAll
+	// grows with the data actually present, so a stream declaring a length far
+	// larger than it carries cannot force a large allocation. A short stream is
+	// not an error here: the octets actually read are what bound decoding, and a
+	// truncated body surfaces as a read error where it runs out. Reading no more
+	// than the declared length leaves anything beyond the object buffer in the
+	// reader.
+	body, err := io.ReadAll(io.LimitReader(dec.src, int64(dec.ph.ObjectBufferLength)))
 	if err != nil {
+		return Errorf("could not read object buffer: %v", err)
+	}
+	dec.r = bufio.NewReader(bytes.NewReader(body))
+	dec.limit = dec.pos + len(body)
+	dec.objLen = len(body)
+
+	//The next 4 bytes are an RPC unique pointer referent. We just skip these.
+	if err = dec.discard(4); err != nil {
 		return Errorf("unable to process byte stream: %v", err)
 	}
 
 	return dec.process(s, reflect.StructTag(""))
 }
 
-func (dec *Decoder) process(s interface{}, tag reflect.StructTag) error {
+func (dec *Decoder) process(s any, tag reflect.StructTag) error {
+	// A structure's alignment gap precedes its whole representation, which
+	// begins with the conformant max counts hoisted to its start — not with its
+	// first field. Align here and fill the fields directly below so that fill
+	// does not consume a second gap after the max counts.
+	v := getReflectValue(s)
+	structure := v.Kind() == reflect.Struct
+	if structure {
+		dec.ensureAlignment(typeAlignment(v.Type(), tag))
+	}
 	// Scan for conformant fields as their max counts are moved to the beginning
 	// http://pubs.opengroup.org/onlinepubs/9629399/chap14.htm#tagfcjh_37
 	err := dec.scanConformantArrays(s, tag)
@@ -70,7 +154,11 @@ func (dec *Decoder) process(s interface{}, tag reflect.StructTag) error {
 	}
 	// Recursively fill the struct fields
 	var localDef []deferedPtr
-	err = dec.fill(s, tag, &localDef)
+	if structure {
+		err = dec.fillStruct(v, &localDef)
+	} else {
+		err = dec.fill(s, tag, &localDef)
+	}
 	if err != nil {
 		return Errorf("could not decode: %v", err)
 	}
@@ -86,7 +174,7 @@ func (dec *Decoder) process(s interface{}, tag reflect.StructTag) error {
 
 // scanConformantArrays scans the structure for embedded conformant fields and captures the maximum element counts for
 // dimensions of the array that are moved to the beginning of the structure.
-func (dec *Decoder) scanConformantArrays(s interface{}, tag reflect.StructTag) error {
+func (dec *Decoder) scanConformantArrays(s any, tag reflect.StructTag) error {
 	err := dec.conformantScan(s, tag)
 	if err != nil {
 		return fmt.Errorf("failed to scan for embedded conformant arrays: %v", err)
@@ -101,7 +189,7 @@ func (dec *Decoder) scanConformantArrays(s interface{}, tag reflect.StructTag) e
 }
 
 // conformantScan inspects the structure's fields for whether they are conformant.
-func (dec *Decoder) conformantScan(s interface{}, tag reflect.StructTag) error {
+func (dec *Decoder) conformantScan(s any, tag reflect.StructTag) error {
 	ndrTag := parseTags(tag)
 	if ndrTag.HasValue(TagPointer) {
 		return nil
@@ -109,6 +197,9 @@ func (dec *Decoder) conformantScan(s interface{}, tag reflect.StructTag) error {
 	v := getReflectValue(s)
 	switch v.Kind() {
 	case reflect.Struct:
+		if err := checkConformantPlacement(v); err != nil {
+			return err
+		}
 		for i := 0; i < v.NumField(); i++ {
 			err := dec.conformantScan(v.Field(i), v.Type().Field(i).Tag)
 			if err != nil {
@@ -154,7 +245,7 @@ func (dec *Decoder) isPointer(v reflect.Value, tag reflect.StructTag, def *[]def
 	return false, nil
 }
 
-func getReflectValue(s interface{}) (v reflect.Value) {
+func getReflectValue(s any) (v reflect.Value) {
 	if r, ok := s.(reflect.Value); ok {
 		v = r
 	} else {
@@ -166,7 +257,7 @@ func getReflectValue(s interface{}) (v reflect.Value) {
 }
 
 // fill populates fields with values from the NDR byte stream.
-func (dec *Decoder) fill(s interface{}, tag reflect.StructTag, localDef *[]deferedPtr) error {
+func (dec *Decoder) fill(s any, tag reflect.StructTag, localDef *[]deferedPtr) error {
 	v := getReflectValue(s)
 
 	//// Pointer so defer filling the referent
@@ -178,68 +269,18 @@ func (dec *Decoder) fill(s interface{}, tag reflect.StructTag, localDef *[]defer
 		return nil
 	}
 
+	// An enumerated type is a signed short whatever the width of the Go type.
+	if ndrTag := parseTags(tag); ndrTag.HasValue(TagEnum) {
+		return dec.fillEnum(v)
+	}
+
 	// Populate the value from the byte stream
 	switch v.Kind() {
 	case reflect.Struct:
-		dec.current = append(dec.current, v.Type().Name()) //Track the current field being filled
-		// in case struct is a union, track this and the selected union field for efficiency
-		var unionTag reflect.Value
-		var unionField string // field to fill if struct is a union
-		// Go through each field in the struct and recursively fill
-		for i := 0; i < v.NumField(); i++ {
-			fieldName := v.Type().Field(i).Name
-			dec.current = append(dec.current, fieldName) //Track the current field being filled
-			//fmt.Fprintf(os.Stderr, "DEBUG Decoding: %s\n", strings.Join(dec.current, "/"))
-			structTag := v.Type().Field(i).Tag
-			ndrTag := parseTags(structTag)
-
-			// Union handling
-			if !unionTag.IsValid() {
-				// Is this field a union tag?
-				unionTag = dec.isUnion(v.Field(i), structTag)
-			} else {
-				// What is the selected field value of the union if we don't already know
-				if unionField == "" {
-					unionField, err = unionSelectedField(v, unionTag)
-					if err != nil {
-						return fmt.Errorf("could not determine selected union value field for %s with discriminat"+
-							" tag %s: %v", v.Type().Name(), unionTag, err)
-					}
-				}
-				if ndrTag.HasValue(TagUnionField) && fieldName != unionField {
-					// is a union and this field has not been selected so will skip it.
-					dec.current = dec.current[:len(dec.current)-1] //This field has been skipped so remove it from the current field tracker
-					continue
-				}
-			}
-
-			// Check if field is a pointer
-			if v.Field(i).Type().Implements(reflect.TypeOf(new(RawBytes)).Elem()) &&
-				v.Field(i).Type().Kind() == reflect.Slice && v.Field(i).Type().Elem().Kind() == reflect.Uint8 {
-				//field is for rawbytes
-				structTag, err = addSizeToTag(v, v.Field(i), structTag)
-				if err != nil {
-					return fmt.Errorf("could not get rawbytes field(%s) size: %v", strings.Join(dec.current, "/"), err)
-				}
-				ptr, err := dec.isPointer(v.Field(i), structTag, localDef)
-				if err != nil {
-					return fmt.Errorf("could not process struct field(%s): %v", strings.Join(dec.current, "/"), err)
-				}
-				if !ptr {
-					err := dec.readRawBytes(v.Field(i), structTag)
-					if err != nil {
-						return fmt.Errorf("could not fill raw bytes struct field(%s): %v", strings.Join(dec.current, "/"), err)
-					}
-				}
-			} else {
-				err := dec.fill(v.Field(i), structTag, localDef)
-				if err != nil {
-					return fmt.Errorf("could not fill struct field(%s): %v", strings.Join(dec.current, "/"), err)
-				}
-			}
-			dec.current = dec.current[:len(dec.current)-1] //This field has been filled so remove it from the current field tracker
-		}
-		dec.current = dec.current[:len(dec.current)-1] //This field has been filled so remove it from the current field tracker
+		// A structure is aligned in the octet stream to the largest of the
+		// alignments of the fields it contains. C706 14.2.2.
+		dec.ensureAlignment(typeAlignment(v.Type(), tag))
+		return dec.fillStruct(v, localDef)
 	case reflect.Bool:
 		i, err := dec.readBool()
 		if err != nil {
@@ -381,13 +422,90 @@ func (dec *Decoder) fill(s interface{}, tag reflect.StructTag, localDef *[]defer
 	return nil
 }
 
-// readBytes returns a number of bytes from the NDR byte stream.
+// readBytes returns a number of bytes from the NDR byte stream. A source such
+// as a network connection may satisfy a read only partially, so the read is
+// repeated until n octets have been consumed.
 func (dec *Decoder) readBytes(n int) ([]byte, error) {
 	//TODO make this take an int64 as input to allow for larger values on all systems?
-	b := make([]byte, n, n)
-	m, err := dec.r.Read(b)
-	if err != nil || m != n {
+	b := make([]byte, n)
+	m, err := io.ReadFull(dec.r, b)
+	dec.pos += m
+	if err != nil {
 		return b, fmt.Errorf("error reading bytes from stream: %v", err)
 	}
 	return b, nil
+}
+
+// fillStruct fills the fields of a structure. The caller is responsible for the
+// structure's alignment gap, because for a top-level or deferred structure that
+// gap precedes the conformant max counts hoisted to the beginning of the
+// structure rather than the first field.
+func (dec *Decoder) fillStruct(v reflect.Value, localDef *[]deferedPtr) error {
+	var err error
+	dec.current = append(dec.current, v.Type().Name()) //Track the current field being filled
+	// in case struct is a union, track this and the selected union field for efficiency
+	var unionTag reflect.Value
+	var unionField string // field to fill if struct is a union
+	// Go through each field in the struct and recursively fill
+	for i := 0; i < v.NumField(); i++ {
+		fieldName := v.Type().Field(i).Name
+		dec.current = append(dec.current, fieldName) //Track the current field being filled
+		//fmt.Fprintf(os.Stderr, "DEBUG Decoding: %s\n", strings.Join(dec.current, "/"))
+		structTag := v.Type().Field(i).Tag
+		ndrTag := parseTags(structTag)
+
+		// Union handling
+		if !unionTag.IsValid() {
+			// Is this field a union tag?
+			unionTag = dec.isUnion(v.Field(i), structTag)
+		} else {
+			// What is the selected field value of the union if we don't already know
+			if unionField == "" {
+				unionField, err = unionSelectedField(v, unionTag)
+				if err != nil {
+					return fmt.Errorf("could not determine selected union value field for %s with discriminat"+
+						" tag %s: %v", v.Type().Name(), unionTag, err)
+				}
+			}
+			if ndrTag.HasValue(TagUnionField) && fieldName != unionField {
+				// is a union and this field has not been selected so will skip it.
+				// Its hoisted conformant max counts were still read from the front of
+				// the structure, so discard them to keep the consume order aligned
+				// with the scan order.
+				for j := 0; j < conformantSlots(v.Field(i), structTag); j++ {
+					dec.precedingMax()
+				}
+				dec.current = dec.current[:len(dec.current)-1] //This field has been skipped so remove it from the current field tracker
+				continue
+			}
+		}
+
+		// Check if field is a pointer
+		if v.Field(i).Type().Implements(reflect.TypeOf(new(RawBytes)).Elem()) &&
+			v.Field(i).Type().Kind() == reflect.Slice && v.Field(i).Type().Elem().Kind() == reflect.Uint8 {
+			//field is for rawbytes
+			structTag, err = addSizeToTag(v, v.Field(i), structTag)
+			if err != nil {
+				return fmt.Errorf("could not get rawbytes field(%s) size: %v", strings.Join(dec.current, "/"), err)
+			}
+			ptr, err := dec.isPointer(v.Field(i), structTag, localDef)
+			if err != nil {
+				return fmt.Errorf("could not process struct field(%s): %v", strings.Join(dec.current, "/"), err)
+			}
+			if !ptr {
+				err := dec.readRawBytes(v.Field(i), structTag)
+				if err != nil {
+					return fmt.Errorf("could not fill raw bytes struct field(%s): %v", strings.Join(dec.current, "/"), err)
+				}
+			}
+		} else {
+			err := dec.fill(v.Field(i), structTag, localDef)
+			if err != nil {
+				return fmt.Errorf("could not fill struct field(%s): %v", strings.Join(dec.current, "/"), err)
+			}
+		}
+		dec.current = dec.current[:len(dec.current)-1] //This field has been filled so remove it from the current field tracker
+	}
+	dec.current = dec.current[:len(dec.current)-1] //This field has been filled so remove it from the current field tracker
+	return nil
 }

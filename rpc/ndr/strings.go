@@ -3,25 +3,32 @@ package ndr
 import (
 	"fmt"
 	"reflect"
+	"unicode/utf16"
 )
 
 const (
-	subStringArrayTag   = `ndr:"varying,X-subStringArray"`
-	subStringArrayValue = "X-subStringArray"
+	subStringArrayTag               = `ndr:"varying,X-subStringArray"`
+	subStringArrayTagNullTerminated = `ndr:"varying,X-subStringArray,nullterminated"`
+	subStringArrayValue             = "X-subStringArray"
 )
 
+// subStringTag returns the struct tag applied to the individual strings of a
+// string array, propagating the array's nullterminated setting to its elements.
+func subStringTag(ndrTag tags) reflect.StructTag {
+	if ndrTag.HasValue(TagNullTerminated) {
+		return reflect.StructTag(subStringArrayTagNullTerminated)
+	}
+	return reflect.StructTag(subStringArrayTag)
+}
+
+// uint16SliceToString decodes UTF-16 code units, combining surrogate pairs into
+// the runes they represent, and strips a single trailing null terminator when
+// one is present.
 func uint16SliceToString(a []uint16) string {
-	s := make([]rune, len(a), len(a))
-	for i := range s {
-		s[i] = rune(a[i])
+	if len(a) > 0 && a[len(a)-1] == 0 {
+		a = a[:len(a)-1]
 	}
-	if len(s) > 0 {
-		// Remove any null terminator
-		if s[len(s)-1] == rune(0) {
-			s = s[:len(s)-1]
-		}
-	}
-	return string(s)
+	return string(utf16.Decode(a))
 }
 
 func (dec *Decoder) readVaryingString(def *[]deferedPtr) (string, error) {

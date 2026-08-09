@@ -33,7 +33,7 @@ func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r refle
 	// field or parameter, which is referenced by the switch_is construct, in the procedure argument list; and once as
 	// the first part of the union representation.
 	if !ndrTag.HasValue(TagEncapsulated) {
-		dec.r.Discard(int(r.Type().Size()))
+		_ = dec.discard(int(r.Type().Size()))
 	}
 	return
 }

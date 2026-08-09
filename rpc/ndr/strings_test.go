@@ -15,38 +15,38 @@ const (
 )
 
 type TestStructWithVaryingString struct {
-	A string `ndr:"varying"`
+	A string `ndr:"varying,nullterminated"`
 }
 
 type TestStructWithConformantVaryingString struct {
-	A string `ndr:"conformant,varying"`
+	A string `ndr:"conformant,varying,nullterminated"`
 }
 
 type TestStructWithConformantVaryingStringUniArray struct {
-	A []string `ndr:"conformant,varying"`
+	A []string `ndr:"conformant,varying,nullterminated"`
 }
 
 // Should not have to specify varying tag
 type TestStructWithNonConformantStringUniArray struct {
-	A []string
+	A []string `ndr:"nullterminated"`
 }
 
 type TestStructWithConformantVaryingStringMultiArray struct {
-	A [][][]string `ndr:"conformant,varying"`
+	A [][][]string `ndr:"conformant,varying,nullterminated"`
 }
 
 // Should not have to specify varying tag
 type TestStructWithNonConformantStringMultiArray struct {
-	A [][][]string
+	A [][][]string `ndr:"nullterminated"`
 }
 
 // Strings are always varying but the array may not be
 type TestStructWithFixedStringUniArray struct {
-	A [4]string
+	A [4]string `ndr:"nullterminated"`
 }
 
 type TestStructWithFixedStringMultiArray struct {
-	A [2][3][2]string
+	A [2][3][2]string `ndr:"nullterminated"`
 }
 
 func Test_uint16SliceToString(t *testing.T) {

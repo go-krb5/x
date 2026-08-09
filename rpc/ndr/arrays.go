@@ -82,6 +82,14 @@ func makeSubSlices(v reflect.Value, l []int) {
 // multiDimensionalIndexPermutations returns all the permutations of the indexes of a multi-dimensional slice.
 // The input is a slice of integers that indicates the max size/length of each dimension
 func multiDimensionalIndexPermutations(l []int) (ps [][]int) {
+	// A dimension of zero length has no elements, so the array as a whole has
+	// no index permutations. Returning the zeros permutation regardless would
+	// have the caller index an empty slice.
+	for _, n := range l {
+		if n < 1 {
+			return nil
+		}
+	}
 	z := make([]int, len(l), len(l)) // The zeros permutation
 	ps = append(ps, z)
 	// for each dimension, in reverse
@@ -174,6 +182,9 @@ func (dec *Decoder) fillConformantArray(v reflect.Value, tag reflect.StructTag, 
 func (dec *Decoder) fillUniDimensionalConformantArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	m := dec.precedingMax()
 	n := int(m)
+	if err := dec.checkAllocatable(v.Type().Elem(), n); err != nil {
+		return err
+	}
 	a := reflect.MakeSlice(v.Type(), n, n)
 	for i := 0; i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -193,6 +204,11 @@ func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, 
 	l := make([]int, d, d)
 	for i := range l {
 		l[i] = int(dec.precedingMax())
+	}
+	// Every element of a conformant array is transmitted, so the octets
+	// remaining are what justify them.
+	if err := dec.checkDimensions(l, dec.remaining()); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
@@ -246,7 +262,22 @@ func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.
 	}
 	t := v.Type()
 	// Total size of the array is the offset in the index being passed plus the actual count of elements being passed.
-	n := int(s + o)
+	// Both come from the stream, so the sum is computed in 64 bits: added as
+	// uint32 it could wrap to a small length and silently truncate the array.
+	total := uint64(s) + uint64(o)
+	if total > uint64(dec.objectBufferLen()) {
+		return fmt.Errorf("offset %d plus actual count %d exceeds the %d octets of the object buffer",
+			o, s, dec.objectBufferLen())
+	}
+	n := int(total)
+	// Only the actual count is transmitted; the offset region is allocated but
+	// never read, so the two are bounded separately.
+	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
+		return err
+	}
+	if err := dec.checkArrayLength(n); err != nil {
+		return err
+	}
 	a := reflect.MakeSlice(t, n, n)
 	// Populate the array starting at the offset specified
 	for i := int(o); i < n; i++ {
@@ -276,7 +307,12 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 		if err != nil {
 			return fmt.Errorf("could not read size of dimension %d: %v", i+1, err)
 		}
-		l[i] = int(s) + int(off)
+		l[i] = int(uint64(s) + uint64(off))
+	}
+	// Offsets name elements allocated without appearing in the stream, so the
+	// whole object buffer is the budget.
+	if err := dec.checkDimensions(l, dec.objectBufferLen()); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
@@ -338,11 +374,26 @@ func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, ta
 	if err != nil {
 		return fmt.Errorf("could not establish actual count of uni-dimensional conformant varying array: %v", err)
 	}
-	if m < o+s {
+	if uint64(m) < uint64(o)+uint64(s) {
 		return errors.New("max count is less than the offset plus actual count")
 	}
 	t := v.Type()
-	n := int(s)
+	// The offset is the index of the first element transmitted and the actual
+	// count is how many follow it, so the array spans offset+count and exactly
+	// count elements are read. Sizing it to the count alone would read count
+	// minus offset elements and leave the rest of the array data in the stream.
+	total := uint64(o) + uint64(s)
+	if total > uint64(dec.objectBufferLen()) {
+		return fmt.Errorf("offset %d plus actual count %d exceeds the %d octets of the object buffer",
+			o, s, dec.objectBufferLen())
+	}
+	n := int(total)
+	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
+		return err
+	}
+	if err := dec.checkArrayLength(n); err != nil {
+		return err
+	}
 	a := reflect.MakeSlice(t, n, n)
 	for i := int(o); i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -375,10 +426,14 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 		if err != nil {
 			return fmt.Errorf("could not read actual count of dimension %d: %v", i+1, err)
 		}
-		if m[i] < int(s)+int(off) {
-			m[i] = int(s) + int(off)
+		if sum := int(uint64(s) + uint64(off)); m[i] < sum {
+			m[i] = sum
 		}
-		l[i] = int(s)
+		// As above, elements run from the offset for actual-count entries.
+		l[i] = int(uint64(s) + uint64(off))
+	}
+	if err := dec.checkDimensions(m, dec.objectBufferLen()); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
