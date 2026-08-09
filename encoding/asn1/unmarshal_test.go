@@ -1070,7 +1070,10 @@ var explicitTaggedTimeTestData = []struct {
 }{
 	{[]byte{0x30, 0x11, 0xa0, 0xf, 0x17, 0xd, '9', '1', '0', '5', '0', '6', '1', '6', '4', '5', '4', '0', 'Z'},
 		explicitTaggedTimeTest{time.Date(1991, 05, 06, 16, 45, 40, 0, time.UTC)}},
-	{[]byte{0x30, 0x17, 0xa0, 0xf, 0x18, 0x13, '2', '0', '1', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '+', '0', '6', '0', '7'},
+	// The explicit tag is 0x15 long: the two byte GeneralizedTime header plus
+	// its 0x13 bytes of content. Upstream Go carries 0xf here, copied from the
+	// case above, which no parser that checks the length will accept.
+	{[]byte{0x30, 0x17, 0xa0, 0x15, 0x18, 0x13, '2', '0', '1', '0', '0', '1', '0', '2', '0', '3', '0', '4', '0', '5', '+', '0', '6', '0', '7'},
 		explicitTaggedTimeTest{time.Date(2010, 01, 02, 03, 04, 05, 0, time.FixedZone("", 6*60*60+7*60))}},
 }
 
@@ -1392,5 +1395,127 @@ func TestParsingMemoryConsumption(t *testing.T) {
 	// the parsing fails.
 	if memDiff > 10<<21 {
 		t.Errorf("Too much memory allocated while parsing DER: %v MiB", memDiff/1024/1024)
+	}
+}
+
+type explicitTagLengthTest struct {
+	A int
+}
+
+// An explicit tag's declared length must be honoured: it cannot claim more than
+// the buffer holds, and the element inside it cannot run past it.
+func TestExplicitTagLengthMustContainInnerElement(t *testing.T) {
+	// 76 05 30 03 02 01 2a
+	// ^^ ^^ application 22, constructed, length 5
+	//       ^^ ^^ SEQUENCE, length 3
+	//             ^^ ^^ ^^ INTEGER 42
+	const params = "application,explicit,tag:22"
+
+	tests := []struct {
+		name string
+		der  []byte
+		ok   bool
+	}{
+		{
+			name: "well formed",
+			der:  []byte{0x76, 0x05, 0x30, 0x03, 0x02, 0x01, 0x2a},
+			ok:   true,
+		},
+		{
+			name: "outer length exceeds buffer",
+			der:  []byte{0x76, 0x09, 0x30, 0x03, 0x02, 0x01, 0x2a},
+		},
+		{
+			name: "outer length stops short of inner element",
+			der:  []byte{0x76, 0x03, 0x30, 0x03, 0x02, 0x01, 0x2a},
+		},
+		{
+			// Accepted on purpose. An explicit tag whose body holds more than
+			// the one element being parsed is how RFC 2743 GSSAPI tokens are
+			// read: the caller unmarshals the leading OID and walks the rest.
+			name: "outer length reaches past inner element",
+			der:  []byte{0x76, 0x06, 0x30, 0x03, 0x02, 0x01, 0x2a, 0x00},
+			ok:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var out explicitTagLengthTest
+			_, err := UnmarshalWithParams(test.der, &out, params)
+			switch {
+			case test.ok && err != nil:
+				t.Errorf("UnmarshalWithParams(% x) = %v, want success", test.der, err)
+			case !test.ok && err == nil:
+				t.Errorf("UnmarshalWithParams(% x) succeeded (A=%d), want error", test.der, out.A)
+			}
+		})
+	}
+}
+
+// The long-form case is the one that shows up on the wire: a KRB_CRED embedded
+// in an authenticator checksum carries a two-octet outer length, and flipping
+// bits in it must not go unnoticed.
+func TestExplicitTagLongFormLengthMustContainInnerElement(t *testing.T) {
+	const params = "application,explicit,tag:22"
+
+	type payload struct {
+		A int
+		B []byte
+	}
+
+	der, err := MarshalWithParams(payload{A: 42, B: make([]byte, 200)}, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if der[1] != 0x81 {
+		t.Fatalf("expected a one-octet long-form length, got header % x", der[:4])
+	}
+
+	for _, mutation := range []struct {
+		name   string
+		length byte
+	}{
+		{name: "overstated", length: 0xff},
+		{name: "understated", length: 0x90},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			corrupt := bytes.Clone(der)
+			corrupt[2] = mutation.length
+
+			var out payload
+			if _, err := UnmarshalWithParams(corrupt, &out, params); err == nil {
+				t.Errorf("UnmarshalWithParams accepted outer length %#02x over a %d byte element (A=%d, len(B)=%d)",
+					mutation.length, der[2], out.A, len(out.B))
+			}
+		})
+	}
+}
+
+// A GSSAPI InitialContextToken (RFC 2743 §3.1) is an [APPLICATION 0] IMPLICIT
+// SEQUENCE holding a mech OID followed by an inner token. Callers read it by
+// unmarshalling the OID with explicit parameters and walking the returned rest,
+// which means the explicit tag's body outlasts the element being parsed. The
+// containment check must leave that intact.
+func TestExplicitTagLeavesTrailingBodyInRest(t *testing.T) {
+	innerToken := []byte{0x01, 0x00, 0xde, 0xad, 0xbe, 0xef}
+	oid, err := Marshal(ObjectIdentifier{1, 2, 840, 113554, 1, 2, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := append(bytes.Clone(oid), innerToken...)
+	token := append([]byte{0x60, byte(len(body))}, body...)
+
+	var got ObjectIdentifier
+	rest, err := UnmarshalWithParams(token, &got, "application,explicit,tag:0")
+	if err != nil {
+		t.Fatalf("UnmarshalWithParams(% x) = %v, want success", token, err)
+	}
+	if !got.Equal(ObjectIdentifier{1, 2, 840, 113554, 1, 2, 2}) {
+		t.Errorf("got OID %v, want the KRB5 mech OID", got)
+	}
+	if !bytes.Equal(rest, innerToken) {
+		t.Errorf("got rest % x, want % x", rest, innerToken)
 	}
 }
