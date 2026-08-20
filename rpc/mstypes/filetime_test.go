@@ -3,10 +3,12 @@ package mstypes
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/go-krb5/x/rpc/ndr"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/go-krb5/x/rpc/ndr"
 )
 
 const TestNDRHeader = "01100800cccccccca00400000000000000000200"

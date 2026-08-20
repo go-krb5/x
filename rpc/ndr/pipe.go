@@ -11,6 +11,9 @@ func (dec *Decoder) fillPipe(v reflect.Value, tag reflect.StructTag) error {
 		return err
 	}
 	a := reflect.MakeSlice(v.Type(), 0, 0)
+	if err := dec.checkAllocatable(v.Type().Elem(), int(s)); err != nil {
+		return err
+	}
 	c := reflect.MakeSlice(v.Type(), int(s), int(s))
 	for s != 0 {
 		for i := 0; i < int(s); i++ {
@@ -24,6 +27,9 @@ func (dec *Decoder) fillPipe(v reflect.Value, tag reflect.StructTag) error {
 			return err
 		}
 		a = reflect.AppendSlice(a, c)
+		if err := dec.checkAllocatable(v.Type().Elem(), int(s)); err != nil {
+			return err
+		}
 		c = reflect.MakeSlice(v.Type(), int(s), int(s))
 	}
 	v.Set(a)

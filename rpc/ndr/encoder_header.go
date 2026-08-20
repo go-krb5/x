@@ -1,20 +1,26 @@
 package ndr
 
+import "encoding/binary"
+
 // writeCommonHeader writes the NDR common header for Type Serialization v1.
-// See header.go for the layout. The encoder always emits little-endian, ASCII,
-// IEEE floating point output: version(1), endianness/charenc byte, header
-// length(8) and the 0xcccccccc filler.
+// See header.go for the layout: version(1), endianness/charenc byte, header
+// length(8) and the 0xcccccccc filler. Type serialization v1 is always ASCII
+// and IEEE floating point; only the integer representation is selectable.
 func (enc *Encoder) writeCommonHeader() error {
 	enc.ch.Version = protocolVersion
 	enc.ch.HeaderLength = commonHeaderBytes
 	enc.ch.CharacterEncoding = ascii
 	enc.ch.FloatRepresentation = ieee
+	representation := byte(littleEndian)
+	if enc.ch.Endianness == binary.ByteOrder(binary.BigEndian) {
+		representation = byte(bigEndian)
+	}
 	// Version
 	if err := enc.buf.WriteByte(protocolVersion); err != nil {
 		return Errorf("could not write common header version: %v", err)
 	}
 	// Endianness (high nibble) and character encoding (low nibble)
-	if err := enc.buf.WriteByte(byte(littleEndian)<<4 | enc.ch.CharacterEncoding); err != nil {
+	if err := enc.buf.WriteByte(representation<<4 | enc.ch.CharacterEncoding); err != nil {
 		return Errorf("could not write common header endianness: %v", err)
 	}
 	// Common header length

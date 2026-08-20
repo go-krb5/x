@@ -5,8 +5,9 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/go-krb5/x/rpc/ndr"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/go-krb5/x/rpc/ndr"
 )
 
 type testSIDStruct struct {

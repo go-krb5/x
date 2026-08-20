@@ -6,8 +6,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/go-krb5/x/rpc/ndr"
 	"golang.org/x/net/http2/hpack"
+
+	"github.com/go-krb5/x/rpc/ndr"
 )
 
 // Compression format assigned numbers. https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-xca/a8b7cb0a-92a6-4187-a23b-5e14273b96f8

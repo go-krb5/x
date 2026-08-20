@@ -32,7 +32,7 @@ import (
 // string, or surplus array data beyond the actual element count). Within that
 // consumed region the bytes must be identical, the encoder's padding beyond it
 // must be zero, and the semantic re-decode must reproduce the original value.
-func roundTripBody(t *testing.T, name, vector string, target interface{}) {
+func roundTripBody(t *testing.T, name, vector string, target any) {
 	t.Helper()
 	b, err := hex.DecodeString(vector)
 	require.NoError(t, err, "%s: could not decode hex vector", name)
@@ -51,7 +51,7 @@ func roundTripBody(t *testing.T, name, vector string, target interface{}) {
 	reDecoded := reflect.New(reflect.TypeOf(target).Elem()).Interface()
 	reDec := NewDecoder(bytes.NewReader(got))
 	require.NoError(t, reDec.Decode(reDecoded), "%s: could not re-decode", name)
-	consumed := reDec.size - reDec.r.Buffered()
+	consumed := reDec.pos
 
 	require.GreaterOrEqual(t, len(got), 16, "%s: encoded output shorter than header", name)
 	require.LessOrEqual(t, consumed, len(got), "%s: consumed exceeds encoded length", name)
@@ -73,7 +73,9 @@ func TestEncodeBasic(t *testing.T) {
 }
 
 func TestEncodeEmbeddedPointers(t *testing.T) {
-	vector := TestHeader + "00040002" + "01000000" + "00040002" + "00040002" + "03000000" + "00040002" + "05000000" + "04000000" + "02000000"
+	// Referent ids are allocated sequentially from topLevelReferent, one per
+	// non-NULL unique pointer in the order they are emitted.
+	vector := TestHeader + "04000200" + "01000000" + "08000200" + "0c000200" + "03000000" + "10000200" + "05000000" + "04000000" + "02000000"
 	roundTripBody(t, "EmbeddedPointers", vector, new(testEmbeddingPointer))
 }
 
@@ -81,7 +83,7 @@ func TestEncodeArrays(t *testing.T) {
 	var tests = []struct {
 		name   string
 		vector string
-		target interface{}
+		target any
 	}{
 		{
 			"UniDimensionalFixedArray",
@@ -168,7 +170,7 @@ func TestEncodeStrings(t *testing.T) {
 	var tests = []struct {
 		name   string
 		vector string
-		target interface{}
+		target any
 	}{
 		{"VaryingString", varyingString, new(TestStructWithVaryingString)},
 		{"ConformantVaryingString", conformantVaryingString, new(TestStructWithConformantVaryingString)},
@@ -190,7 +192,7 @@ func TestEncodeUnions(t *testing.T) {
 	var tests = []struct {
 		name   string
 		vector string
-		target interface{}
+		target any
 	}{
 		{"Encapsulated1", TestHeader + testUnionSelected1Enc, new(testUnionEncapsulated)},
 		{"Encapsulated2", TestHeader + testUnionSelected2Enc, new(testUnionEncapsulated)},
@@ -228,43 +230,43 @@ func TestEncodePipe(t *testing.T) {
 func TestEncodeDecodeRoundTrip(t *testing.T) {
 	var tests = []struct {
 		name  string
-		value interface{}
-		empty func() interface{}
+		value any
+		empty func() any
 	}{
 		{
 			"Simple",
 			&SimpleTest{A: 258377425, B: 29780581},
-			func() interface{} { return new(SimpleTest) },
+			func() any { return new(SimpleTest) },
 		},
 		{
 			"ConformantSlice",
 			&StructWithConformantSlice{A: []uint32{1, 2, 3, 4}},
-			func() interface{} { return new(StructWithConformantSlice) },
+			func() any { return new(StructWithConformantSlice) },
 		},
 		{
 			"VaryingSlice",
 			&StructWithVaryingSlice{A: []uint32{5, 6, 7}},
-			func() interface{} { return new(StructWithVaryingSlice) },
+			func() any { return new(StructWithVaryingSlice) },
 		},
 		{
 			"ConformantVaryingSlice",
 			&StructWithConformantVaryingSlice{A: []uint32{9, 8, 7, 6, 5}},
-			func() interface{} { return new(StructWithConformantVaryingSlice) },
+			func() any { return new(StructWithConformantVaryingSlice) },
 		},
 		{
 			"FixedArray",
 			&StructWithArray{A: [4]uint32{10, 20, 30, 40}},
-			func() interface{} { return new(StructWithArray) },
+			func() any { return new(StructWithArray) },
 		},
 		{
 			"VaryingString",
 			&TestStructWithVaryingString{A: "hello world!"},
-			func() interface{} { return new(TestStructWithVaryingString) },
+			func() any { return new(TestStructWithVaryingString) },
 		},
 		{
 			"ConformantVaryingString",
 			&TestStructWithConformantVaryingString{A: "another string"},
-			func() interface{} { return new(TestStructWithConformantVaryingString) },
+			func() any { return new(TestStructWithConformantVaryingString) },
 		},
 		{
 			"EmbeddedPointers",
@@ -276,7 +278,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 				},
 				B: 1,
 			},
-			func() interface{} { return new(testEmbeddingPointer) },
+			func() any { return new(testEmbeddingPointer) },
 		},
 	}
 	for _, test := range tests {
@@ -340,19 +342,28 @@ type structWithValueTypePointer struct {
 	S innerPointerValue `ndr:"pointer"`
 }
 
-// A value-type field tagged as an NDR pointer that holds its zero value is a
-// NULL pointer (e.g. an absent RPC_SID). It must encode as a zero referent and
-// round-trip unchanged — it must NOT come back as a present, populated struct.
-// A populated value-type pointer must round-trip as present.
-func TestEncodeZeroValueTypePointer(t *testing.T) {
-	orig := structWithValueTypePointer{A: 7} // S is the zero value -> NULL
+// Only nilable kinds can express a NULL NDR pointer. A struct is not nilable,
+// so a pointer-tagged struct always encodes as present — even when every field
+// holds its zero value — because a zero struct is a legitimate value and must
+// not be transmitted as absent. Its data round-trips; the inner conformant
+// slice comes back empty rather than nil because a present zero-max-count array
+// was actually written.
+func TestEncodeZeroValueTypePointerIsPresent(t *testing.T) {
+	orig := structWithValueTypePointer{A: 7} // S is the zero value, still present
 	b, err := Marshal(&orig)
 	require.NoError(t, err)
 
+	// Body after the 16-byte header: top-level referent (4), A uint32 (4),
+	// S referent (4).
+	require.GreaterOrEqual(t, len(b), 28)
+	assert.NotEqual(t, uint32(0), binary.LittleEndian.Uint32(b[24:28]),
+		"a zero-value struct behind a pointer tag must emit a present referent")
+
 	var got structWithValueTypePointer
 	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
-	assert.Equal(t, orig, got, "zero value-type pointer round trip mismatch")
-	assert.Nil(t, got.S.Y, "zero value-type pointer must stay zero (nil inner slice)")
+	assert.Equal(t, uint32(7), got.A)
+	assert.Equal(t, uint32(0), got.S.X)
+	assert.Empty(t, got.S.Y, "zero-max-count conformant array must decode as empty")
 
 	present := structWithValueTypePointer{A: 7, S: innerPointerValue{X: 5, Y: []uint32{1, 2}}}
 	pb, err := Marshal(&present)
@@ -363,14 +374,10 @@ func TestEncodeZeroValueTypePointer(t *testing.T) {
 	assert.Equal(t, present, gotPresent, "present value-type pointer round trip mismatch")
 }
 
-// structWithZeroConformantInPointer exercises the case where a value-type
-// struct tagged as an NDR pointer contains a zero-element conformant slice.
-// When the parent struct was originally absent (NULL pointer), the decoder
-// leaves it as a zero value — including a nil SubSlice. The encoder then
-// encodes it as present (structs cannot be NULL) with a zero-max-count
-// conformant array, and the decoder must restore nil (not an empty slice) so
-// that reflect.DeepEqual round-trips work for absent pointer structs such as
-// the MS-PAC ResourceGroupDomainSID.
+// structWithZeroConformantInPointer exercises a pointer-tagged struct holding a
+// zero-element conformant slice. The struct is encoded as present with a
+// zero-max-count conformant array, which must decode back to an empty slice and
+// leave the surrounding fields intact.
 type structWithZeroConformantInPointer struct {
 	Inner struct {
 		Count    uint32
@@ -388,7 +395,7 @@ func TestEncodeZeroConformantInsidePointerStruct(t *testing.T) {
 	var got structWithZeroConformantInPointer
 	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got), "could not decode")
 
-	assert.Nil(t, got.Inner.SubSlice,
-		"zero-element conformant array must round-trip as nil, not an empty slice")
-	assert.Equal(t, orig, got, "zero-conformant-in-pointer-struct round trip mismatch")
+	assert.Equal(t, uint32(0), got.Inner.Count)
+	assert.Empty(t, got.Inner.SubSlice,
+		"zero-element conformant array must round-trip as an empty array")
 }

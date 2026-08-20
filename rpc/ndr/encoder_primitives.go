@@ -1,7 +1,9 @@
 package ndr
 
 import (
+	"fmt"
 	"math"
+	"reflect"
 )
 
 // writeBool writes a byte representing a boolean.
@@ -72,10 +74,33 @@ func (enc *Encoder) writeFloat64(f float64) error {
 // ensureAlignment pads the output stream with zero bytes so that the next
 // primitive of size n octets is aligned at an octet stream index that is a
 // multiple of n. This is the symmetric counterpart of the decoder skipping
-// alignment gaps. The index is relative to the start of the whole stream.
+// alignment gaps. The index is relative to the start of the whole stream, which
+// is base plus the octets buffered for the type currently being written.
 func (enc *Encoder) ensureAlignment(n int) {
-	p := enc.buf.Len()
+	p := enc.base + enc.buf.Len()
 	if s := p % n; s != 0 {
 		enc.buf.Write(make([]byte, n-s))
 	}
+}
+
+// writeEnum writes a field tagged as an NDR enumerated type: a signed short
+// integer of 2 octets, whatever the width of the Go type modelling it.
+func (enc *Encoder) writeEnum(v reflect.Value) error {
+	var i int64
+	switch v.Kind() {
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		u := v.Uint()
+		if u > math.MaxInt16 {
+			return fmt.Errorf("enum value %d does not fit in the 2 octets NDR uses for an enumerated type", u)
+		}
+		i = int64(u)
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		i = v.Int()
+		if i < math.MinInt16 || i > math.MaxInt16 {
+			return fmt.Errorf("enum value %d does not fit in the 2 octets NDR uses for an enumerated type", i)
+		}
+	default:
+		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())
+	}
+	return enc.writeInt16(int16(i))
 }

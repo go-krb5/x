@@ -3,7 +3,9 @@ package ndr
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"reflect"
 )
 
 // Byte sizes of primitive types
@@ -82,6 +84,7 @@ func (dec *Decoder) readUint8() (uint8, error) {
 	if err != nil {
 		return uint8(0), err
 	}
+	dec.pos++
 	return uint8(b), nil
 }
 
@@ -198,14 +201,35 @@ func (dec *Decoder) readFloat64() (f float64, err error) {
 	return
 }
 
+// fillEnum reads a field tagged as an NDR enumerated type: a signed short
+// integer of 2 octets, whatever the width of the Go type modelling it.
+func (dec *Decoder) fillEnum(v reflect.Value) error {
+	i, err := dec.readInt16()
+	if err != nil {
+		return fmt.Errorf("could not fill enum %s: %v", v.Type().Name(), err)
+	}
+	switch v.Kind() {
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if i < 0 {
+			return fmt.Errorf("enum value %d is negative but %s is unsigned", i, v.Type())
+		}
+		v.SetUint(uint64(i))
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(int64(i))
+	default:
+		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())
+	}
+	return nil
+}
+
 // NDR enforces NDR alignment of primitive data; that is, any primitive of size n octets is aligned at a octet stream
 // index that is a multiple of n. (In this version of NDR, n is one of {1, 2, 4, 8}.) An octet stream index indicates
 // the number of an octet in an octet stream when octets are numbered, beginning with 0, from the first octet in the
 // stream. Where necessary, an alignment gap, consisting of octets of unspecified value, precedes the representation
 // of a primitive. The gap is of the smallest size sufficient to align the primitive.
 func (dec *Decoder) ensureAlignment(n int) {
-	p := dec.size - dec.r.Buffered()
-	if s := p % n; s != 0 {
-		dec.r.Discard(n - s)
+	if s := dec.pos % n; s != 0 {
+		// A failure here surfaces on the read that follows.
+		_ = dec.discard(n - s)
 	}
 }
