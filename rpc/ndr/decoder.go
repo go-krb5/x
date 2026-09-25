@@ -337,12 +337,12 @@ func (dec *Decoder) fill(s any, tag reflect.StructTag, localDef *[]deferedPtr) e
 		var s string
 		var err error
 		if conformant {
-			s, err = dec.readConformantVaryingString(localDef)
+			s, err = dec.readString(true)
 			if err != nil {
 				return fmt.Errorf("could not fill with conformant varying string: %v", err)
 			}
 		} else {
-			s, err = dec.readVaryingString(localDef)
+			s, err = dec.readString(false)
 			if err != nil {
 				return fmt.Errorf("could not fill with varying string: %v", err)
 			}
