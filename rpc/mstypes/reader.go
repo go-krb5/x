@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/go-krb5/x/internal/saferio"
 )
 
 // Byte sizes of primitive types
@@ -97,13 +99,15 @@ func (r *Reader) UTF16String(n int) (str string, err error) {
 	return
 }
 
-// readBytes returns a number of bytes from the NDR byte stream.
+// ReadBytes returns a number of bytes from the byte stream. The allocation grows as the bytes are read, so a large n
+// from untrusted data does not allocate more than the stream holds.
 func (r *Reader) ReadBytes(n int) ([]byte, error) {
-	//TODO make this take an int64 as input to allow for larger values on all systems?
-	b := make([]byte, n, n)
-	m, err := r.r.Read(b)
-	if err != nil || m != n {
-		return b, fmt.Errorf("error reading bytes from stream: %v", err)
+	if n < 0 {
+		return nil, fmt.Errorf("error reading bytes from stream: invalid length %d", n)
+	}
+	b, err := saferio.ReadData(r.r, uint64(n))
+	if err != nil {
+		return nil, fmt.Errorf("error reading bytes from stream: %v", err)
 	}
 	return b, nil
 }
