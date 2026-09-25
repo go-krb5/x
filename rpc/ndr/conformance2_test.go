@@ -223,6 +223,15 @@ func TestEncoderBufferDoesNotGrowAcrossTypes(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsMultiDimensionalCountOverMax(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "01000000" + "01000000" + "00000000" + "02000000" + "00000000" + "01000000" +
+		"01000000" + "02000000")
+	require.NoError(t, err)
+
+	var got structWithTwoDimensionalConformantVarying
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
 type colour uint32
 
 type structWithEnum struct {
@@ -274,4 +283,8 @@ func (u unionWithPipeArm) SwitchFunc(tag any) string {
 		return "V2"
 	}
 	return "V1"
+}
+
+type structWithTwoDimensionalConformantVarying struct {
+	A [][]uint32 `ndr:"conformant,varying"`
 }

@@ -435,7 +435,7 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 			return fmt.Errorf("dimension %d: %v", i+1, err)
 		}
 		if m[i] < sum {
-			m[i] = sum
+			return fmt.Errorf("dimension %d: max count %d is less than the offset plus actual count %d", i+1, m[i], sum)
 		}
 		o[i] = int(off)
 		l[i] = sum
