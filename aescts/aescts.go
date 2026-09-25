@@ -107,10 +107,10 @@ func Decrypt(key, iv, ciphertext []byte) ([]byte, error) {
 	}
 
 	// We need to modify the cipher text
-	// Decryt the 2nd to last (penultimate) block with a the original iv
+	// Decrypt the 2nd to last (penultimate) block with the raw block cipher. Its tail is the plaintext XOR'd with the
+	// stolen ciphertext bytes, so no iv is applied here.
 	pb := make([]byte, aes.BlockSize)
-	mode = cipher.NewCBCDecrypter(block, iv)
-	mode.CryptBlocks(pb, cpb)
+	block.Decrypt(pb, cpb)
 	// number of byte needed to pad
 	npb := aes.BlockSize - len(ct)%aes.BlockSize
 	//pad last block using the number of bytes needed from the tail of the plaintext 2nd to last (penultimate) block
@@ -169,7 +169,6 @@ func swapLastTwoBlocks(b []byte, c int) ([]byte, error) {
 	return out, nil
 }
 
-// zeroPad pads bytes with zeros to nearest multiple of message size m.
 func zeroPad(b []byte, m int) ([]byte, error) {
 	if m <= 0 {
 		return nil, errors.New("invalid message block size when padding")

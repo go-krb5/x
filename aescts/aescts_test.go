@@ -15,7 +15,6 @@ func TestAesCts_Encrypt_Decrypt(t *testing.T) {
 		cipher string
 		nextIV string
 	}{
-		//Test vectors from RFC 3962 Appendix B
 		{"4920776f756c64206c696b652074686520", "c6353568f2bf8cb4d8a580362da7ff7f97", "c6353568f2bf8cb4d8a580362da7ff7f"},
 		{"4920776f756c64206c696b65207468652047656e6572616c20476175277320", "fc00783e0efdb2c1d445d4c8eff7ed2297687268d6ecccc0c07b25e25ecfe5", "fc00783e0efdb2c1d445d4c8eff7ed22"},
 		{"4920776f756c64206c696b65207468652047656e6572616c2047617527732043", "39312523a78662d5be7fcbcc98ebf5a897687268d6ecccc0c07b25e25ecfe584", "39312523a78662d5be7fcbcc98ebf5a8"},
@@ -32,7 +31,6 @@ func TestAesCts_Encrypt_Decrypt(t *testing.T) {
 		assert.Equal(t, test.cipher, hex.EncodeToString(c), "Encrypted result not as expected")
 		assert.Equal(t, test.nextIV, hex.EncodeToString(niv), "Next state IV not as expected")
 	}
-	//t.Log("AES CTS Encryption tests finished")
 	for i, test := range tests {
 		b, _ := hex.DecodeString(test.cipher)
 		p, err := Decrypt(key, iv, b)
@@ -41,5 +39,26 @@ func TestAesCts_Encrypt_Decrypt(t *testing.T) {
 		}
 		assert.Equal(t, test.plain, hex.EncodeToString(p), "Decrypted result not as expected")
 	}
-	//t.Log("AES CTS Decryption tests finished")
+}
+
+func TestAesCts_RoundTrip_NonZeroIV(t *testing.T) {
+	key, _ := hex.DecodeString("636869636b656e207465726979616b69")
+	iv := make([]byte, 16)
+	for i := range iv {
+		iv[i] = 0xAA
+	}
+
+	for _, n := range []int{16, 17, 31, 32, 33, 47, 48, 49, 64, 65} {
+		p := make([]byte, n)
+		for i := range p {
+			p[i] = byte(i + 1)
+		}
+
+		_, c, err := Encrypt(key, iv, p)
+		assert.NoError(t, err, "encrypt length %d", n)
+
+		d, err := Decrypt(key, iv, c)
+		assert.NoError(t, err, "decrypt length %d", n)
+		assert.Equal(t, hex.EncodeToString(p), hex.EncodeToString(d), "round trip length %d", n)
+	}
 }
