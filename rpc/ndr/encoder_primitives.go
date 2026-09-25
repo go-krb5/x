@@ -81,8 +81,9 @@ func (enc *Encoder) writeEnum(v reflect.Value) error {
 		i = int64(u)
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		i = v.Int()
-		if i < math.MinInt16 || i > math.MaxInt16 {
-			return fmt.Errorf("enum value %d does not fit in the 2 octets NDR uses for an enumerated type", i)
+		// C706 permits negative enumerators, but Windows rejects an enum16 value above 32767 read as unsigned.
+		if i < 0 || i > math.MaxInt16 {
+			return fmt.Errorf("enum value %d is outside the 0 to 32767 range Windows accepts for an enumerated type", i)
 		}
 	default:
 		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())

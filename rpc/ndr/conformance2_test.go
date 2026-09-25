@@ -232,6 +232,24 @@ func TestDecodeRejectsMultiDimensionalCountOverMax(t *testing.T) {
 	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
 }
 
+func TestEnumRejectsNegativeValue(t *testing.T) {
+	_, err := Marshal(&structWithSignedEnum{A: -1})
+	assert.Error(t, err)
+
+	b, err := hex.DecodeString(TestHeader + "ffff")
+	require.NoError(t, err)
+	var got structWithSignedEnum
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
+func TestEnumRejectsValueOverflowingField(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "2c01")
+	require.NoError(t, err)
+
+	var got structWithNarrowEnum
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
 type colour uint32
 
 type structWithEnum struct {
@@ -287,4 +305,12 @@ func (u unionWithPipeArm) SwitchFunc(tag any) string {
 
 type structWithTwoDimensionalConformantVarying struct {
 	A [][]uint32 `ndr:"conformant,varying"`
+}
+
+type structWithSignedEnum struct {
+	A int32 `ndr:"enum"`
+}
+
+type structWithNarrowEnum struct {
+	A uint8 `ndr:"enum"`
 }
