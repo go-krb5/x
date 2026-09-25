@@ -163,6 +163,19 @@ func TestArrayBoundRejectsValuesTooLargeToNarrow(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestDecodeRejectsUnbackedRawBytesSize(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "000000f0")
+	require.NoError(t, err)
+
+	var decErr error
+	alloc := allocatedBy(t, func() {
+		decErr = NewDecoder(bytes.NewReader(b)).Decode(new(structWithUnbackedRawBytes))
+	})
+	require.Error(t, decErr)
+	assert.Contains(t, decErr.Error(), "octets")
+	assert.Less(t, alloc, uint64(allocationBudget))
+}
+
 func allocatedBy(t *testing.T, f func()) uint64 {
 	t.Helper()
 	var before, after runtime.MemStats
@@ -174,3 +187,14 @@ func allocatedBy(t *testing.T, f func()) uint64 {
 }
 
 const allocationBudget = 1 << 20
+
+type unbackedRawBytes []byte
+
+func (b unbackedRawBytes) Size(parent any) int {
+	return int(parent.(structWithUnbackedRawBytes).N)
+}
+
+type structWithUnbackedRawBytes struct {
+	N uint32
+	B unbackedRawBytes
+}
