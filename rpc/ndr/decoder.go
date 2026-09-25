@@ -132,9 +132,14 @@ func (dec *Decoder) Decode(s any) error {
 	dec.limit = dec.pos + len(body)
 	dec.objLen = len(body)
 
-	//The next 4 bytes are an RPC unique pointer referent. We just skip these.
-	if err = dec.discard(4); err != nil {
+	// The next 4 bytes are the referent id of the unique pointer to the top-level type. A NULL pointer has no
+	// referent, so there is no type to decode into s.
+	ref, err := dec.readUint32()
+	if err != nil {
 		return Errorf("unable to process byte stream: %v", err)
+	}
+	if ref == 0 {
+		return Errorf("the top-level type is a NULL pointer and has no referent to decode")
 	}
 
 	return dec.process(s, reflect.StructTag(""))
