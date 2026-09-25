@@ -11,6 +11,8 @@ import (
 // The discriminating tag field must have the struct tag: `ndr:"unionTag"`
 // If the union is encapsulated the discriminating tag field must have the struct tag: `ndr:"encapsulated"`
 // The possible value fields that can be selected from must have the struct tag: `ndr:"unionField"`
+// SwitchFunc returns the name of the selected field, or an empty string to select an arm with no member, such as an
+// empty [default] arm, in which case no union field is transmitted.
 type Union interface {
 	SwitchFunc(t interface{}) string
 }
@@ -60,8 +62,21 @@ func unionSelectedField(union, discriminant reflect.Value) (string, error) {
 		return "", fmt.Errorf("could not find a selection function called %s in the unions struct representation", unionSelectionFuncName)
 	}
 	f := sf.Call(args)
-	if f[0].Kind() != reflect.String || f[0].String() == "" {
+	if f[0].Kind() != reflect.String {
 		return "", fmt.Errorf("the union select function did not return a string for the name of the field to fill")
 	}
-	return f[0].String(), nil
+	name := f[0].String()
+	if name == "" {
+		// An arm with no member, such as a [default] arm declared as an empty statement.
+		return "", nil
+	}
+	field, ok := union.Type().FieldByName(name)
+	if ok {
+		ndrTag := parseTags(field.Tag)
+		ok = ndrTag.HasValue(TagUnionField)
+	}
+	if !ok {
+		return "", fmt.Errorf("the union select function returned %q, which is not a union field of %s", name, union.Type())
+	}
+	return name, nil
 }
