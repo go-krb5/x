@@ -40,10 +40,17 @@ type ClaimsBlob struct {
 // EncodedBlob are the bytes of the encoded Claims
 type EncodedBlob []byte
 
-// Size returns the size of the bytes of the encoded Claims
+// Size returns the size of the bytes of the encoded Claims. It returns -1, which the NDR codec rejects as a size, when
+// the EncodedBlob is not within a ClaimsBlob.
 func (b EncodedBlob) Size(c interface{}) int {
-	cb := c.(ClaimsBlob)
-	return int(cb.Size)
+	switch cb := c.(type) {
+	case ClaimsBlob:
+		return int(cb.Size)
+	case *ClaimsBlob:
+		return int(cb.Size)
+	default:
+		return -1
+	}
 }
 
 // ClaimsSetMetadata implements https://msdn.microsoft.com/en-us/library/hh554073.aspx
