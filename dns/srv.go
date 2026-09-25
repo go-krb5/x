@@ -57,40 +57,33 @@ func orderSRV(addrs []*net.SRV) (int, map[int]*net.SRV) {
 }
 
 func weightedOrder(srvs []*net.SRV) map[int]*net.SRV {
-	// Get the total weight
-	var tw int
-	for _, s := range srvs {
-		tw += int(s.Weight)
+	remaining := make([]*net.SRV, len(srvs))
+	copy(remaining, srvs)
+
+	var sum int
+	for _, s := range remaining {
+		sum += int(s.Weight)
 	}
 
-	// Initialise the ordered map
-	o := 1
-	osrv := make(map[int]*net.SRV)
+	osrv := make(map[int]*net.SRV, len(remaining))
 
-	// Whilst there are still entries to be ordered
-	l := len(srvs)
-	for l > 0 {
-		i := rand.Intn(l)
-		s := srvs[i]
-		var rw int
-		if tw > 0 {
-			// Greater the weight the more likely this will be zero or less
-			rw = rand.Intn(tw) - int(s.Weight)
-		}
-		if rw <= 0 {
-			// Put entry in position
-			osrv[o] = s
-			if len(srvs) > 1 {
-				// Remove the entry from the source slice by swapping with the last entry and truncating
-				srvs[len(srvs)-1], srvs[i] = srvs[i], srvs[len(srvs)-1]
-				srvs = srvs[:len(srvs)-1]
-				l = len(srvs)
-			} else {
-				l = 0
+	for o := 1; len(remaining) > 0; o++ {
+		i := 0
+		if sum > 0 {
+			// Select the first record whose running sum of weights exceeds a uniform random number below the sum.
+			n := rand.Intn(sum)
+			running := 0
+			for i = range remaining {
+				running += int(remaining[i].Weight)
+				if running > n {
+					break
+				}
 			}
-			o += 1
-			tw = tw - int(s.Weight)
 		}
+		osrv[o] = remaining[i]
+		sum -= int(remaining[i].Weight)
+		remaining = append(remaining[:i], remaining[i+1:]...)
 	}
+
 	return osrv
 }
