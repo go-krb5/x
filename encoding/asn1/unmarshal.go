@@ -435,6 +435,12 @@ func parseIA5String(bytes []byte) (ret string, err error) {
 	return
 }
 
+// GeneralString
+
+func parseGeneralString(bytes []byte) (ret string, err error) {
+	return string(bytes), nil
+}
+
 // T61String
 
 func parseT61String(bytes []byte) (ret string, err error) {
@@ -712,7 +718,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 				result, err = parseIA5String(innerBytes)
 			case TagGeneralString:
 				if opts.allowTypeGeneralString {
-					result, err = parseIA5String(innerBytes)
+					result, err = parseGeneralString(innerBytes)
 				}
 			case TagT61String:
 				result, err = parseT61String(innerBytes)
@@ -1020,11 +1026,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 		case TagUTF8String:
 			v, err = parseUTF8String(innerBytes)
 		case TagGeneralString:
-			// GeneralString is specified in ISO-2022/ECMA-35,
-			// A brief review suggests that it includes structures
-			// that allow the encoding to change midstring and
-			// such. We give up and pass it as an 8-bit string.
-			v, err = parseT61String(innerBytes)
+			v, err = parseGeneralString(innerBytes)
 		case TagBMPString:
 			v, err = parseBMPString(innerBytes)
 
