@@ -159,6 +159,72 @@ func (u *User) RemoveAttribute(k string) {
 	delete(u.attributes, k)
 }
 
+type userGob struct {
+	Authenticated   bool
+	Domain          string
+	UserName        string
+	DisplayName     string
+	Email           string
+	Human           bool
+	GroupMembership map[string]bool
+	AuthTime        time.Time
+	SessionID       string
+	Expiry          time.Time
+	Attributes      map[string]interface{}
+}
+
+// GobEncode implements gob.GobEncoder. Values of custom types held in the attributes must be registered with
+// gob.Register.
+func (u User) GobEncode() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	err := gob.NewEncoder(buf).Encode(userGob{
+		Authenticated:   u.authenticated,
+		Domain:          u.domain,
+		UserName:        u.userName,
+		DisplayName:     u.displayName,
+		Email:           u.email,
+		Human:           u.human,
+		GroupMembership: u.groupMembership,
+		AuthTime:        u.authTime,
+		SessionID:       u.sessionID,
+		Expiry:          u.expiry,
+		Attributes:      u.attributes,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// GobDecode implements gob.GobDecoder.
+func (u *User) GobDecode(b []byte) error {
+	var g userGob
+	if err := gob.NewDecoder(bytes.NewReader(b)).Decode(&g); err != nil {
+		return err
+	}
+	// gob does not transmit empty maps, so they are recreated here.
+	if g.GroupMembership == nil {
+		g.GroupMembership = make(map[string]bool)
+	}
+	if g.Attributes == nil {
+		g.Attributes = make(map[string]interface{})
+	}
+	*u = User{
+		authenticated:   g.Authenticated,
+		domain:          g.Domain,
+		userName:        g.UserName,
+		displayName:     g.DisplayName,
+		email:           g.Email,
+		human:           g.Human,
+		groupMembership: g.GroupMembership,
+		authTime:        g.AuthTime,
+		sessionID:       g.SessionID,
+		expiry:          g.Expiry,
+		attributes:      g.Attributes,
+	}
+	return nil
+}
+
 func (u *User) Marshal() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	enc := gob.NewEncoder(buf)
