@@ -88,8 +88,11 @@ func (dec *Decoder) Decode(s any) error {
 	}
 
 	// Headers come from the octet stream itself, not from the previous type's
-	// object buffer.
+	// object buffer. Nothing left over from a previous type, including one that
+	// failed to decode, carries into this one.
 	dec.r = dec.src
+	dec.conformantMax = nil
+	dec.current = nil
 	if !dec.common {
 		if err := dec.readCommonHeader(); err != nil {
 			return err
