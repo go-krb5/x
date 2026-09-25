@@ -461,7 +461,9 @@ func (dec *Decoder) fillStruct(v reflect.Value, localDef *[]deferedPtr) error {
 				// the structure, so discard them to keep the consume order aligned
 				// with the scan order.
 				for j := 0; j < conformantSlots(v.Field(i), structTag); j++ {
-					dec.precedingMax()
+					if _, err := dec.precedingMax(); err != nil {
+						return err
+					}
 				}
 				dec.current = dec.current[:len(dec.current)-1] //This field has been skipped so remove it from the current field tracker
 				continue

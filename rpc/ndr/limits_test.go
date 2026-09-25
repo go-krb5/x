@@ -176,6 +176,17 @@ func TestDecodeRejectsUnbackedRawBytesSize(t *testing.T) {
 	assert.Less(t, alloc, uint64(allocationBudget))
 }
 
+func TestDecodeMissingConformantMaxErrors(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "00000200" + "01000000" + "01000000")
+	require.NoError(t, err)
+
+	assert.NotPanics(t, func() {
+		err = NewDecoder(bytes.NewReader(b)).Decode(new(structWithPointerOnlySlice))
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "conformant max count")
+}
+
 func allocatedBy(t *testing.T, f func()) uint64 {
 	t.Helper()
 	var before, after runtime.MemStats
@@ -197,4 +208,8 @@ func (b unbackedRawBytes) Size(parent any) int {
 type structWithUnbackedRawBytes struct {
 	N uint32
 	B unbackedRawBytes
+}
+
+type structWithPointerOnlySlice struct {
+	A []uint32 `ndr:"pointer"`
 }

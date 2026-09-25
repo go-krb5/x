@@ -57,10 +57,16 @@ func (dec *Decoder) readStringsArray(v reflect.Value, tag reflect.StructTag, def
 	//var ms int
 	if ndrTag.HasValue(TagConformant) {
 		for i := 0; i < d; i++ {
-			m = append(m, int(dec.precedingMax()))
+			n, err := dec.precedingMax()
+			if err != nil {
+				return err
+			}
+			m = append(m, int(n))
 		}
 		//common max size
-		_ = dec.precedingMax()
+		if _, err := dec.precedingMax(); err != nil {
+			return err
+		}
 		//ms = int(n)
 	}
 	tag = reflect.StructTag(subStringArrayTag)
