@@ -38,14 +38,22 @@ func (enc *Encoder) nextReferent() uint32 {
 }
 
 func (enc *Encoder) setEndianness() error {
+	var order binary.ByteOrder
 	switch enc.Endianness {
 	case nil, binary.ByteOrder(binary.LittleEndian):
-		enc.ch.Endianness = binary.LittleEndian
+		order = binary.LittleEndian
 	case binary.ByteOrder(binary.BigEndian):
-		enc.ch.Endianness = binary.BigEndian
+		order = binary.BigEndian
 	default:
 		return Errorf("unsupported endianness %v: type serialization v1 permits only little-endian or big-endian", enc.Endianness)
 	}
+	// The common header declares the integer representation for the whole
+	// stream, so every top-level type after the first must share it.
+	if enc.started && order != enc.ch.Endianness {
+		return Errorf("endianness %v differs from the %v already declared by this stream's common header; use a new"+
+			" Encoder for a stream in a different byte order", order, enc.ch.Endianness)
+	}
+	enc.ch.Endianness = order
 	return nil
 }
 
