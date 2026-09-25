@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/go-krb5/x/rpc/ndr"
 )
@@ -208,6 +209,24 @@ func Test_EncodedBlob_SizeWithOtherParent(t *testing.T) {
 		err = ndr.NewDecoder(bytes.NewReader(b)).Decode(new(blobInOtherStruct))
 	})
 	assert.Error(t, err)
+}
+
+func TestClaimsSetBooleanValuesAreULONG64(t *testing.T) {
+	in := ClaimsSet{ClaimsArrayCount: 1, ClaimsArrays: []ClaimsArray{{ClaimsSourceType: ClaimsSourceTypeAD, ClaimsCount: 2,
+		ClaimEntries: []ClaimEntry{
+			{ID: "flag", Type: ClaimsTypeIDBoolean, TypeBool: ClaimTypeBoolean{ValueCount: 2, Value: []uint64{0, 1}}},
+			{ID: "next", Type: ClaimsTypeIDBoolean, TypeBool: ClaimTypeBoolean{ValueCount: 1, Value: []uint64{1}}},
+		}}}}
+	b, err := ndr.Marshal(&in)
+	require.NoError(t, err)
+	assert.Contains(t, hex.EncodeToString(b), "02000000"+"00000000"+"0000000000000000"+"0100000000000000")
+
+	var out ClaimsSet
+	require.NoError(t, ndr.NewDecoder(bytes.NewReader(b)).Decode(&out))
+	entries := out.ClaimsArrays[0].ClaimEntries
+	assert.Equal(t, []bool{false, true}, entries[0].TypeBool.Bools())
+	assert.Equal(t, "next", entries[1].ID)
+	assert.Equal(t, []bool{true}, entries[1].TypeBool.Bools())
 }
 
 const (
