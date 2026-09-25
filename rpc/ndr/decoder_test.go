@@ -13,19 +13,11 @@ func TestReadCommonHeader(t *testing.T) {
 		EncodedHex string
 		ExpectFail bool
 	}{
-		{"01100800cccccccc", false}, // Little Endian
-		{"01000008cccccccc", false}, // Big Endian have to change the bytes for the header size? This test vector was artificially created. Need proper test vector
-		//{"01100800cccccccc1802000000000000", false},
-		//{"01100800cccccccc0002000000000000", false},
-		//{"01100800cccccccc0001000000000000", false},
-		//{"01100800cccccccce000000000000000", false},
-		//{"01100800ccccccccf000000000000000", false},
-		//{"01100800cccccccc7801000000000000", false},
-		//{"01100800cccccccc4801000000000000", false},
-		//{"01100800ccccccccd001000000000000", false},
-		{"02100800cccccccc", true}, // Incorrect version
-		{"02100900cccccccc", true}, // Incorrect length
-
+		{"01100800cccccccc", false},
+		{"01000800cccccccc", false},
+		{"01000008cccccccc", true},
+		{"02100800cccccccc", true},
+		{"02100900cccccccc", true},
 	}
 
 	for i, test := range tests {
@@ -50,9 +42,8 @@ func TestReadPrivateHeader(t *testing.T) {
 		{"01100800cccccccc1802000000000000", false, 536},
 		{"01100800cccccccc0002000000000000", false, 512},
 		{"01100800cccccccc0001000000000000", false, 256},
-		{"01100800ccccccccFF00000000000000", true, 255}, // Length not multiple of 8
-		{"01100800cccccccc00010000000000", true, 256},   // Too short
-
+		{"01100800ccccccccFF00000000000000", true, 255},
+		{"01100800cccccccc00010000000000", true, 256},
 	}
 
 	for i, test := range tests {
@@ -73,11 +64,6 @@ func TestReadPrivateHeader(t *testing.T) {
 			t.Errorf("Objectbuffer length expected %d actual %d", test.Length, dec.ph.ObjectBufferLength)
 		}
 	}
-}
-
-type SimpleTest struct {
-	A uint32
-	B uint32
 }
 
 func TestBasicDecode(t *testing.T) {
@@ -104,22 +90,6 @@ func TestBasicDecodeOverRun(t *testing.T) {
 	}
 }
 
-type testEmbeddingPointer struct {
-	A testEmbeddedPointer `ndr:"pointer"`
-	B uint32              // 1
-}
-
-type testEmbeddedPointer struct {
-	C testEmbeddedPointer2 `ndr:"pointer"`
-	D uint32               `ndr:"pointer"` // 2
-	E uint32               // 3
-}
-
-type testEmbeddedPointer2 struct {
-	F uint32 `ndr:"pointer"` // 4
-	G uint32 // 5
-}
-
 func Test_EmbeddedPointers(t *testing.T) {
 	hexStr := TestHeader + "00040002" + "01000000" + "00040002" + "00040002" + "03000000" + "00040002" + "05000000" + "04000000" + "02000000"
 	b, _ := hex.DecodeString(hexStr)
@@ -134,4 +104,25 @@ func Test_EmbeddedPointers(t *testing.T) {
 	assert.Equal(t, uint32(3), ft.A.E)
 	assert.Equal(t, uint32(4), ft.A.C.F)
 	assert.Equal(t, uint32(5), ft.A.C.G)
+}
+
+type SimpleTest struct {
+	A uint32
+	B uint32
+}
+
+type testEmbeddingPointer struct {
+	A testEmbeddedPointer `ndr:"pointer"`
+	B uint32
+}
+
+type testEmbeddedPointer struct {
+	C testEmbeddedPointer2 `ndr:"pointer"`
+	D uint32               `ndr:"pointer"`
+	E uint32
+}
+
+type testEmbeddedPointer2 struct {
+	F uint32 `ndr:"pointer"`
+	G uint32
 }

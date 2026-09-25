@@ -46,7 +46,8 @@ func TestDecodeRejectsInvalidEndiannessByte(t *testing.T) {
 		ok   bool
 	}{
 		{"little endian ascii", "10", "0800", true},
-		{"big endian ascii", "00", "0008", true},
+		{"big endian ascii", "00", "0800", true},
+		{"big endian header length", "00", "0008", false},
 		{"ebcdic low nibble", "11", "0800", false},
 		{"reserved low nibble", "1f", "0800", false},
 		{"invalid representation", "20", "0800", false},
