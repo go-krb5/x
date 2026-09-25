@@ -17,7 +17,7 @@ Common Header - https://msdn.microsoft.com/en-us/library/cc243890.aspx
   0x10 and 0x00 here: type serialization v1 always uses the ASCII character
   format and the IEEE floating point format, neither of which is negotiated in
   this header (unlike the four-octet DCE NDR format label).
-- 3rd - 4th - Common Header Length: a 16-bit integer that must equal 8
+- 3rd - 4th - Common Header Length: a 16-bit integer that must equal 8, little-endian whatever the endianness declared
 - 5th - 8th - Filler: MUST be set to 0xcccccccc on marshaling, and SHOULD be ignored during unmarshaling.
 
 Private Header - https://msdn.microsoft.com/en-us/library/cc243919.aspx
@@ -91,7 +91,8 @@ func (dec *Decoder) readCommonHeader() error {
 	if err != nil {
 		return Malformed{EText: fmt.Sprintf("could not read common header length: %v", err)}
 	}
-	dec.ch.HeaderLength = dec.ch.Endianness.Uint16(lb)
+	// MS-RPCE 2.2.6.1: the common header is little-endian whatever the endianness it declares.
+	dec.ch.HeaderLength = binary.LittleEndian.Uint16(lb)
 	if dec.ch.HeaderLength != commonHeaderBytes {
 		return Malformed{EText: "common header does not indicate a valid length"}
 	}

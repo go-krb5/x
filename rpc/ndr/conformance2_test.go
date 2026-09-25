@@ -45,7 +45,7 @@ func TestEncodeBigEndian(t *testing.T) {
 	b := buf.Bytes()
 
 	assert.Equal(t, byte(0x00), b[1], "endianness octet declares big-endian")
-	assert.Equal(t, "0008", hex.EncodeToString(b[2:4]), "header length is written big-endian")
+	assert.Equal(t, "0800", hex.EncodeToString(b[2:4]))
 	assert.Equal(t, "00000001", hex.EncodeToString(b[20:24]), "field A is written big-endian")
 
 	var got SimpleTest

@@ -21,7 +21,7 @@ func (enc *Encoder) writeCommonHeader() error {
 	}
 	// Common header length
 	b := make([]byte, 2)
-	enc.ch.Endianness.PutUint16(b, commonHeaderBytes)
+	binary.LittleEndian.PutUint16(b, commonHeaderBytes)
 	if err := enc.writeBytes(b); err != nil {
 		return Errorf("could not write common header length: %v", err)
 	}
