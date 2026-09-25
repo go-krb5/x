@@ -25,6 +25,7 @@ import (
 	"math"
 	"math/big"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -77,8 +78,6 @@ func parseBool(bytes []byte) (ret bool, err error) {
 
 // INTEGER
 
-// checkInteger returns nil if the given bytes are a valid DER-encoded
-// INTEGER and an error otherwise.
 func checkInteger(bytes []byte, allowBER bool) error {
 	if len(bytes) == 0 {
 		return StructuralError{"empty integer"}
@@ -95,8 +94,6 @@ func checkInteger(bytes []byte, allowBER bool) error {
 	return nil
 }
 
-// parseInt64 treats the given bytes as a big-endian, signed integer and
-// returns the result.
 func parseInt64(bytes []byte, allowBER bool) (ret int64, err error) {
 	if err = checkInteger(bytes, allowBER); err != nil {
 		return
@@ -118,8 +115,6 @@ func parseInt64(bytes []byte, allowBER bool) (ret int64, err error) {
 	return
 }
 
-// parseInt32 treats the given bytes as a big-endian, signed integer and returns
-// the result.
 func parseInt32(bytes []byte, ber bool) (int32, error) {
 	ret64, err := parseInt64(bytes, ber)
 	if err != nil {
@@ -133,8 +128,6 @@ func parseInt32(bytes []byte, ber bool) (int32, error) {
 
 var bigOne = big.NewInt(1)
 
-// parseBigInt treats the given bytes as a big-endian, signed integer and returns
-// the result.
 func parseBigInt(bytes []byte, allowBER bool) (*big.Int, error) {
 	if err := checkInteger(bytes, allowBER); err != nil {
 		return nil, err
@@ -194,7 +187,6 @@ func (b BitString) RightAlign() []byte {
 	return a
 }
 
-// parseBitString parses an ASN.1 bit string from the given byte slice and returns it.
 func parseBitString(bytes []byte) (ret BitString, err error) {
 	if len(bytes) == 0 {
 		err = SyntaxError{"zero length BIT STRING"}
@@ -245,9 +237,6 @@ func (oi ObjectIdentifier) String() string {
 	return s.String()
 }
 
-// parseObjectIdentifier parses an OBJECT IDENTIFIER from the given bytes and
-// returns it. An object identifier is a sequence of variable length integers
-// that are assigned in a hierarchy.
 func parseObjectIdentifier(bytes []byte) (s ObjectIdentifier, err error) {
 	if len(bytes) == 0 {
 		err = SyntaxError{"zero length OBJECT IDENTIFIER"}
@@ -296,8 +285,6 @@ type Enumerated int
 // A Flag accepts any data and is set to true if present.
 type Flag bool
 
-// parseBase128Int parses a base-128 encoded int from the given offset in the
-// given byte slice. It returns the value and the new offset.
 func parseBase128Int(bytes []byte, initOffset int) (ret, offset int, err error) {
 	offset = initOffset
 	var ret64 int64
@@ -359,8 +346,6 @@ func parseUTCTime(bytes []byte) (ret time.Time, err error) {
 	return
 }
 
-// parseGeneralizedTime parses the GeneralizedTime from the given byte slice
-// and returns the resulting time.
 func parseGeneralizedTime(bytes []byte) (ret time.Time, err error) {
 	const formatStr = "20060102150405.999999999Z0700"
 	s := string(bytes)
@@ -378,8 +363,6 @@ func parseGeneralizedTime(bytes []byte) (ret time.Time, err error) {
 
 // NumericString
 
-// parseNumericString parses an ASN.1 NumericString from the given byte array
-// and returns it.
 func parseNumericString(bytes []byte) (ret string, err error) {
 	for _, b := range bytes {
 		if !isNumeric(b) {
@@ -389,7 +372,6 @@ func parseNumericString(bytes []byte) (ret string, err error) {
 	return string(bytes), nil
 }
 
-// isNumeric reports whether the given b is in the ASN.1 NumericString set.
 func isNumeric(b byte) bool {
 	return '0' <= b && b <= '9' ||
 		b == ' '
@@ -397,8 +379,6 @@ func isNumeric(b byte) bool {
 
 // PrintableString
 
-// parsePrintableString parses an ASN.1 PrintableString from the given byte
-// array and returns it.
 func parsePrintableString(bytes []byte) (ret string, err error) {
 	for _, b := range bytes {
 		if !isPrintable(b, allowAsterisk, allowAmpersand) {
@@ -421,9 +401,6 @@ const (
 	rejectAmpersand ampersandFlag = false
 )
 
-// isPrintable reports whether the given b is in the ASN.1 PrintableString set.
-// If asterisk is allowAsterisk then '*' is also allowed, reflecting existing
-// practice. If ampersand is allowAmpersand then '&' is allowed as well.
 func isPrintable(b byte, asterisk asteriskFlag, ampersand ampersandFlag) bool {
 	return 'a' <= b && b <= 'z' ||
 		'A' <= b && b <= 'Z' ||
@@ -447,8 +424,6 @@ func isPrintable(b byte, asterisk asteriskFlag, ampersand ampersandFlag) bool {
 
 // IA5String
 
-// parseIA5String parses an ASN.1 IA5String (ASCII string) from the given
-// byte slice and returns it.
 func parseIA5String(bytes []byte) (ret string, err error) {
 	for _, b := range bytes {
 		if b >= utf8.RuneSelf {
@@ -462,8 +437,6 @@ func parseIA5String(bytes []byte) (ret string, err error) {
 
 // T61String
 
-// parseT61String parses an ASN.1 T61String (8-bit clean string) from the given
-// byte slice and returns it.
 func parseT61String(bytes []byte) (ret string, err error) {
 	// T.61 is a defunct ITU 8-bit character encoding which preceded Unicode.
 	// T.61 uses a code page layout that _almost_ exactly maps to the code
@@ -484,8 +457,6 @@ func parseT61String(bytes []byte) (ret string, err error) {
 
 // UTF8String
 
-// parseUTF8String parses an ASN.1 UTF8String (raw UTF-8) from the given byte
-// array and returns it.
 func parseUTF8String(bytes []byte) (ret string, err error) {
 	if !utf8.Valid(bytes) {
 		return "", errors.New("asn1: invalid UTF-8 string")
@@ -495,8 +466,6 @@ func parseUTF8String(bytes []byte) (ret string, err error) {
 
 // BMPString
 
-// parseBMPString parses an ASN.1 BMPString (Basic Multilingual Plane of
-// ISO/IEC/ITU 10646-1) from the given byte slice and returns it.
 func parseBMPString(bmpString []byte) (string, error) {
 	// BMPString uses the defunct UCS-2 16-bit character encoding, which
 	// covers the Basic Multilingual Plane (BMP). UTF-16 was an extension of
@@ -548,10 +517,6 @@ type RawContent []byte
 
 // Tagging
 
-// parseTagAndLength parses an ASN.1 tag and length pair from the given offset
-// into a byte slice. It returns the parsed data and the new offset. SET and
-// SET OF (tag 17) are mapped to SEQUENCE and SEQUENCE OF (tag 16) since we
-// don't distinguish between ordered and unordered objects in this code.
 func parseTagAndLength(bytes []byte, initOffset int) (ret tagAndLength, offset int, err error) {
 	offset = initOffset
 	// parseTagAndLength should not be called without at least a single
@@ -627,10 +592,7 @@ func parseTagAndLength(bytes []byte, initOffset int) (ret tagAndLength, offset i
 	return
 }
 
-// parseSequenceOf is used for SEQUENCE OF and SET OF values. It tries to parse
-// a number of ASN.1 values from the given byte slice and returns them as a
-// slice of Go values of the given type.
-func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type, opts *unmarshalOpts) (ret reflect.Value, err error) {
+func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type, opts *unmarshalOpts, depth int) (ret reflect.Value, err error) {
 	matchAny, expectedTag, compoundType, ok := getUniversalType(elemType)
 	if !ok {
 		err = StructuralError{"unknown Go type for slice"}
@@ -679,7 +641,7 @@ func parseSequenceOf(bytes []byte, sliceType reflect.Type, elemType reflect.Type
 	offset := 0
 	for i := 0; i < numElements; i++ {
 		ret = reflect.Append(ret, reflect.Zero(elemType))
-		offset, err = parseField(ret.Index(i), bytes, offset, params, opts)
+		offset, err = parseField(ret.Index(i), bytes, offset, params, opts, depth)
 		if err != nil {
 			return
 		}
@@ -698,16 +660,22 @@ var (
 	bigIntType           = reflect.TypeFor[*big.Int]()
 )
 
-// invalidLength reports whether offset + length > sliceLength, or if the
-// addition would overflow.
 func invalidLength(offset, length, sliceLength int) bool {
 	return offset+length < offset || offset+length > sliceLength
 }
 
-// parseField is the main parsing function. Given a byte slice and an offset
-// into the array, it will try to parse a suitable ASN.1 value out and store it
-// in the given Value.
-func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParameters, opts *unmarshalOpts) (offset int, err error) {
+const (
+	maxDecodeDepth     = 10000
+	maxDecodeDepthWasm = 5000 // See go.dev/issue/56498.
+)
+
+func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParameters, opts *unmarshalOpts, depth int) (offset int, err error) {
+	depth++
+
+	if depth > maxDecodeDepth || runtime.GOARCH == "wasm" && depth > maxDecodeDepthWasm {
+		return initOffset, StructuralError{"nesting depth exceeded"}
+	}
+
 	offset = initOffset
 	fieldType := v.Type()
 
@@ -1008,7 +976,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			if i == 0 && field.Type == rawContentsType {
 				continue
 			}
-			innerOffset, err = parseField(val.Field(i), innerBytes, innerOffset, parseFieldParameters(field.Tag.Get("asn1")), opts)
+			innerOffset, err = parseField(val.Field(i), innerBytes, innerOffset, parseFieldParameters(field.Tag.Get("asn1")), opts, depth)
 			if err != nil {
 				return
 			}
@@ -1024,7 +992,7 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 			reflect.Copy(val, reflect.ValueOf(innerBytes))
 			return
 		}
-		newSlice, err1 := parseSequenceOf(innerBytes, sliceType, sliceType.Elem(), opts)
+		newSlice, err1 := parseSequenceOf(innerBytes, sliceType, sliceType.Elem(), opts, depth)
 		if err1 == nil {
 			val.Set(newSlice)
 		}
@@ -1064,8 +1032,6 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 	return
 }
 
-// canHaveDefaultValue reports whether k is a Kind that we will set a default
-// value for. (A signed integer, essentially.)
 func canHaveDefaultValue(k reflect.Kind) bool {
 	switch k {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -1075,9 +1041,6 @@ func canHaveDefaultValue(k reflect.Kind) bool {
 	return false
 }
 
-// setDefaultValue is used to install a default value, from a tag string, into
-// a Value. It is successful if the field was optional, even if a default value
-// wasn't provided or it failed to install it into the Value.
 func setDefaultValue(v reflect.Value, params fieldParameters) (ok bool) {
 	if !params.optional {
 		return
@@ -1172,8 +1135,6 @@ func Unmarshal(b []byte, val any, opts ...UnmarshalOpt) (rest []byte, err error)
 	return UnmarshalWithParams(b, val, "", opts...)
 }
 
-// An invalidUnmarshalError describes an invalid argument passed to Unmarshal.
-// (The argument to Unmarshal must be a non-nil pointer.)
 type invalidUnmarshalError struct {
 	Type reflect.Type
 }
@@ -1202,7 +1163,7 @@ func UnmarshalWithParams(b []byte, val any, params string, opts ...UnmarshalOpt)
 	if v.Kind() != reflect.Pointer || v.IsNil() {
 		return nil, &invalidUnmarshalError{reflect.TypeOf(val)}
 	}
-	offset, err := parseField(v.Elem(), b, 0, parseFieldParameters(params), o)
+	offset, err := parseField(v.Elem(), b, 0, parseFieldParameters(params), o, 0)
 	if err != nil {
 		return nil, err
 	}
