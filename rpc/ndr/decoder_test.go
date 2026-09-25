@@ -129,6 +129,14 @@ func TestDecodeRejectsAliasedUniquePointers(t *testing.T) {
 	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
 }
 
+func TestDecodeRejectsNullTopLevelReferent(t *testing.T) {
+	b, err := hex.DecodeString("01100800cccccccc" + "10000000" + "00000000" + "00000000" + "01000000" + "02000000" + "00000000")
+	require.NoError(t, err)
+
+	var got SimpleTest
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
 type SimpleTest struct {
 	A uint32
 	B uint32
