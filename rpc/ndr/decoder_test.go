@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestReadCommonHeader(t *testing.T) {
@@ -106,6 +107,20 @@ func Test_EmbeddedPointers(t *testing.T) {
 	assert.Equal(t, uint32(5), ft.A.C.G)
 }
 
+func TestDecodeAfterFailureDoesNotReuseMaxCounts(t *testing.T) {
+	b, err := hex.DecodeString("01100800cccccccc" + "08000000" + "00000000" + "00000200" + "01000000" +
+		"10000000" + "00000000" + "00000200" + "07000000" + "08000000" + "00000000")
+	require.NoError(t, err)
+
+	dec := NewDecoder(bytes.NewReader(b))
+	var bad structWithWideFieldBeforeConformant
+	require.Error(t, dec.Decode(&bad))
+
+	var good SimpleTest
+	require.NoError(t, dec.Decode(&good))
+	assert.Equal(t, SimpleTest{A: 7, B: 8}, good)
+}
+
 type SimpleTest struct {
 	A uint32
 	B uint32
@@ -125,4 +140,9 @@ type testEmbeddedPointer struct {
 type testEmbeddedPointer2 struct {
 	F uint32 `ndr:"pointer"`
 	G uint32
+}
+
+type structWithWideFieldBeforeConformant struct {
+	B uint64
+	A []uint32 `ndr:"conformant"`
 }
