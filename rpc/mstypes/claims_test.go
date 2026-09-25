@@ -211,6 +211,23 @@ func Test_EncodedBlob_SizeWithOtherParent(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestClaimsSetUnknownClaimTypeHasNoValues(t *testing.T) {
+	in := ClaimsSet{ClaimsArrayCount: 1, ClaimsArrays: []ClaimsArray{{ClaimsSourceType: ClaimsSourceTypeAD, ClaimsCount: 2,
+		ClaimEntries: []ClaimEntry{
+			{ID: "future", Type: 5},
+			{ID: "next", Type: ClaimTypeIDInt64, TypeInt64: ClaimTypeInt64{ValueCount: 1, Value: []int64{-7}}},
+		}}}}
+	b, err := ndr.Marshal(&in)
+	require.NoError(t, err)
+
+	var out ClaimsSet
+	require.NoError(t, ndr.NewDecoder(bytes.NewReader(b)).Decode(&out))
+	entries := out.ClaimsArrays[0].ClaimEntries
+	assert.Equal(t, "future", entries[0].ID)
+	assert.Equal(t, uint16(5), entries[0].Type)
+	assert.Equal(t, []int64{-7}, entries[1].TypeInt64.Value)
+}
+
 func TestClaimsSetBooleanValuesAreULONG64(t *testing.T) {
 	in := ClaimsSet{ClaimsArrayCount: 1, ClaimsArrays: []ClaimsArray{{ClaimsSourceType: ClaimsSourceTypeAD, ClaimsCount: 2,
 		ClaimEntries: []ClaimEntry{
