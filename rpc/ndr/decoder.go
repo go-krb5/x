@@ -38,17 +38,18 @@ type Decoder struct {
 	// large read. Zero selects defaultMaxObjectBuffer.
 	MaxObjectBufferLength int
 
-	src           *bufio.Reader // the octet stream
-	r             *bufio.Reader // current source: the stream for headers, the object buffer for a body
-	common        bool          // whether the stream's common header has been read
-	pos           int           // octets consumed; NDR alignment is relative to this index
-	limit         int           // stream index one past the end of the object buffer
-	objLen        int           // size of the object buffer
-	ch            CommonHeader  // NDR common header
-	ph            PrivateHeader // NDR private header
-	conformantMax []uint32      // conformant max values that were moved to the beginning of the structure
-	s             any           // pointer to the structure being populated
-	current       []string      // keeps track of the current field being populated
+	src           *bufio.Reader       // the octet stream
+	r             *bufio.Reader       // current source: the stream for headers, the object buffer for a body
+	common        bool                // whether the stream's common header has been read
+	pos           int                 // octets consumed; NDR alignment is relative to this index
+	limit         int                 // stream index one past the end of the object buffer
+	objLen        int                 // size of the object buffer
+	ch            CommonHeader        // NDR common header
+	ph            PrivateHeader       // NDR private header
+	conformantMax []uint32            // conformant max values that were moved to the beginning of the structure
+	s             any                 // pointer to the structure being populated
+	current       []string            // keeps track of the current field being populated
+	referents     map[uint32]struct{} // referent ids of the embedded pointers of the current top-level type
 }
 
 type deferedPtr struct {
@@ -93,6 +94,7 @@ func (dec *Decoder) Decode(s any) error {
 	dec.r = dec.src
 	dec.conformantMax = nil
 	dec.current = nil
+	dec.referents = map[uint32]struct{}{}
 	if !dec.common {
 		if err := dec.readCommonHeader(); err != nil {
 			return err
@@ -236,6 +238,12 @@ func (dec *Decoder) isPointer(v reflect.Value, tag reflect.StructTag, def *[]def
 		}
 		ndrTag.delete(TagPointer)
 		if p != 0 {
+			// C706 14.3.10: unique pointers cannot be aliases, so each non-NULL referent id appears once. A repeated
+			// id would otherwise read a second referent that the stream does not carry.
+			if _, ok := dec.referents[p]; ok {
+				return true, Errorf("referent id %#x is repeated but unique pointers cannot be aliases", p)
+			}
+			dec.referents[p] = struct{}{}
 			// if pointer is not zero add to the deferred items at end of stream
 			*def = append(*def, deferedPtr{v, ndrTag.StructTag()})
 		}
