@@ -35,6 +35,11 @@ func orderSRV(addrs []*net.SRV) (int, map[int]*net.SRV) {
 
 	prioMap := make(map[int][]*net.SRV, 0)
 	for _, srv := range addrs {
+		// RFC 2782: a Target of "." means the service is decidedly not available at this domain, so there is nothing to
+		// connect to.
+		if srv.Target == "." {
+			continue
+		}
 		prioMap[int(srv.Priority)] = append(prioMap[int(srv.Priority)], srv)
 	}
 
