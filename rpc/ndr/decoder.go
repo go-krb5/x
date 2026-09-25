@@ -450,6 +450,7 @@ func (dec *Decoder) fillStruct(v reflect.Value, localDef *[]deferedPtr) error {
 	// in case struct is a union, track this and the selected union field for efficiency
 	var unionTag reflect.Value
 	var unionField string // field to fill if struct is a union
+	var unionSelected bool
 	// Go through each field in the struct and recursively fill
 	for i := 0; i < v.NumField(); i++ {
 		fieldName := v.Type().Field(i).Name
@@ -467,12 +468,13 @@ func (dec *Decoder) fillStruct(v reflect.Value, localDef *[]deferedPtr) error {
 			}
 		} else {
 			// What is the selected field value of the union if we don't already know
-			if unionField == "" {
+			if !unionSelected {
 				unionField, err = unionSelectedField(v, unionTag)
 				if err != nil {
-					return fmt.Errorf("could not determine selected union value field for %s with discriminat"+
-						" tag %s: %v", v.Type().Name(), unionTag, err)
+					return fmt.Errorf("could not determine selected union value field for %s with discriminant"+
+						" tag %v: %v", v.Type().Name(), unionTag, err)
 				}
+				unionSelected = true
 			}
 			if ndrTag.HasValue(TagUnionField) && fieldName != unionField {
 				// is a union and this field has not been selected so will skip it.

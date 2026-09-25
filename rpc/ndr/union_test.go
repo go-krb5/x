@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_readUnionEncapsulated(t *testing.T) {
@@ -73,6 +74,22 @@ func TestUnionEnumDiscriminantRoundTrip(t *testing.T) {
 	assert.Equal(t, in, out)
 }
 
+func TestUnionEmptyArmRoundTrip(t *testing.T) {
+	in := testUnionNonEncapsulated{Tag: 9}
+	b, err := Marshal(&in)
+	require.NoError(t, err)
+	assert.Equal(t, "0900000009000000", hex.EncodeToString(b[20:28]))
+
+	var out testUnionNonEncapsulated
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&out))
+	assert.Equal(t, in, out)
+}
+
+func TestUnionRejectsUnknownSelectedField(t *testing.T) {
+	_, err := Marshal(&testUnionBadSelection{Tag: 1})
+	assert.Error(t, err)
+}
+
 const (
 	testUnionSelected1Enc    = "0100000001"
 	testUnionSelected2Enc    = "020000000200"
@@ -121,4 +138,13 @@ type testUnionEnumDiscriminant struct {
 
 func (u testUnionEnumDiscriminant) SwitchFunc(tag interface{}) string {
 	return "Value1"
+}
+
+type testUnionBadSelection struct {
+	Tag    uint32 `ndr:"unionTag"`
+	Value1 uint32 `ndr:"unionField"`
+}
+
+func (u testUnionBadSelection) SwitchFunc(tag interface{}) string {
+	return "Missing"
 }
