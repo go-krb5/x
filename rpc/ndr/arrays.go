@@ -103,10 +103,13 @@ func multiDimensionalIndexPermutations(l []int) (ps [][]int) {
 	return
 }
 
-func (dec *Decoder) precedingMax() uint32 {
+func (dec *Decoder) precedingMax() (uint32, error) {
+	if len(dec.conformantMax) == 0 {
+		return 0, errors.New("no hoisted conformant max count available: this arrangement of conformant arrays is not supported")
+	}
 	m := dec.conformantMax[0]
 	dec.conformantMax = dec.conformantMax[1:]
-	return m
+	return m, nil
 }
 
 func (dec *Decoder) fillFixedArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -168,7 +171,10 @@ func (dec *Decoder) fillConformantArray(v reflect.Value, tag reflect.StructTag, 
 }
 
 func (dec *Decoder) fillUniDimensionalConformantArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	m := dec.precedingMax()
+	m, err := dec.precedingMax()
+	if err != nil {
+		return err
+	}
 	n := int(m)
 	if err := dec.checkAllocatable(v.Type().Elem(), n); err != nil {
 		return err
@@ -188,7 +194,11 @@ func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, 
 	// Read the max size of each dimensions from the ndr stream
 	l := make([]int, d, d)
 	for i := range l {
-		l[i] = int(dec.precedingMax())
+		m, err := dec.precedingMax()
+		if err != nil {
+			return err
+		}
+		l[i] = int(m)
 	}
 	// Every element of a conformant array is transmitted, so the octets
 	// remaining are what justify them.
@@ -343,7 +353,10 @@ func (dec *Decoder) fillConformantVaryingArray(v reflect.Value, tag reflect.Stru
 }
 
 func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	m := dec.precedingMax()
+	m, err := dec.precedingMax()
+	if err != nil {
+		return err
+	}
 	o, err := dec.readUint32()
 	if err != nil {
 		return fmt.Errorf("could not read offset of uni-dimensional conformant varying array: %v", err)
@@ -385,7 +398,11 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 	// Read the offset and actual count of each dimensions from the ndr stream
 	m := make([]int, d, d)
 	for i := range m {
-		m[i] = int(dec.precedingMax())
+		n, err := dec.precedingMax()
+		if err != nil {
+			return err
+		}
+		m[i] = int(n)
 	}
 	o := make([]int, d, d)
 	l := make([]int, d, d)
