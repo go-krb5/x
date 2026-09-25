@@ -146,6 +146,17 @@ func TestEncodeRawBytesLongerThanSizeErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not equal size")
 }
 
+func TestEncodeRejectsEndiannessChangeWithinStream(t *testing.T) {
+	var buf bytes.Buffer
+	enc := NewEncoder(&buf)
+	require.NoError(t, enc.Encode(&structWithSingleUint32{A: 1}))
+	n := buf.Len()
+
+	enc.Endianness = binary.BigEndian
+	assert.Error(t, enc.Encode(&structWithSingleUint32{A: 1}))
+	assert.Equal(t, n, buf.Len())
+}
+
 type testUnionWithConformant struct {
 	Tag    uint32   `ndr:"unionTag"`
 	Value1 []uint32 `ndr:"unionField,conformant"`
@@ -208,4 +219,8 @@ type structWithArrayOfConformant struct {
 type structWithTwoPointers struct {
 	A []uint32 `ndr:"pointer,conformant"`
 	B []uint32 `ndr:"pointer,conformant"`
+}
+
+type structWithSingleUint32 struct {
+	A uint32
 }
