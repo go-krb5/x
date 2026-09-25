@@ -26,6 +26,7 @@ func NewUser(username string) User {
 	return User{
 		userName:        username,
 		groupMembership: make(map[string]bool),
+		attributes:      make(map[string]interface{}),
 		sessionID:       uuid.Must(uuid.NewRandom()).String(),
 	}
 }
@@ -92,6 +93,9 @@ func (u *User) SetAuthenticated(b bool) {
 }
 
 func (u *User) AddAuthzAttribute(a string) {
+	if u.groupMembership == nil {
+		u.groupMembership = make(map[string]bool)
+	}
 	u.groupMembership[a] = true
 }
 
@@ -141,6 +145,9 @@ func (u *User) Attributes() map[string]interface{} {
 }
 
 func (u *User) SetAttribute(k string, v interface{}) {
+	if u.attributes == nil {
+		u.attributes = make(map[string]interface{})
+	}
 	u.attributes[k] = v
 }
 
