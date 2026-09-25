@@ -92,7 +92,7 @@ func TestBasicDecodeOverRun(t *testing.T) {
 }
 
 func Test_EmbeddedPointers(t *testing.T) {
-	hexStr := TestHeader + "00040002" + "01000000" + "00040002" + "00040002" + "03000000" + "00040002" + "05000000" + "04000000" + "02000000"
+	hexStr := TestHeader + "04000200" + "01000000" + "08000200" + "0c000200" + "03000000" + "10000200" + "05000000" + "04000000" + "02000000"
 	b, _ := hex.DecodeString(hexStr)
 	ft := new(testEmbeddingPointer)
 	dec := NewDecoder(bytes.NewReader(b))
@@ -119,6 +119,14 @@ func TestDecodeAfterFailureDoesNotReuseMaxCounts(t *testing.T) {
 	var good SimpleTest
 	require.NoError(t, dec.Decode(&good))
 	assert.Equal(t, SimpleTest{A: 7, B: 8}, good)
+}
+
+func TestDecodeRejectsAliasedUniquePointers(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "04000200" + "01000000" + "08000200" + "08000200" + "03000000" + "10000200" + "05000000" + "04000000" + "02000000")
+	require.NoError(t, err)
+
+	var got testEmbeddingPointer
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
 }
 
 type SimpleTest struct {
