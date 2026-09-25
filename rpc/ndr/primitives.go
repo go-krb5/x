@@ -196,13 +196,20 @@ func (dec *Decoder) fillEnum(v reflect.Value) error {
 	if err != nil {
 		return fmt.Errorf("could not fill enum %s: %v", v.Type().Name(), err)
 	}
+	// Windows rejects an enum16 value above 32767 read as unsigned, which is every negative value.
+	if i < 0 {
+		return fmt.Errorf("enum value %d is negative", i)
+	}
 	switch v.Kind() {
 	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if i < 0 {
-			return fmt.Errorf("enum value %d is negative but %s is unsigned", i, v.Type())
+		if v.OverflowUint(uint64(i)) {
+			return fmt.Errorf("enum value %d overflows %s", i, v.Type())
 		}
 		v.SetUint(uint64(i))
 	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if v.OverflowInt(int64(i)) {
+			return fmt.Errorf("enum value %d overflows %s", i, v.Type())
+		}
 		v.SetInt(int64(i))
 	default:
 		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())
