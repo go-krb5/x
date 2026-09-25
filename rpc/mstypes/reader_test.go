@@ -31,3 +31,11 @@ func TestReaderReadBytesHugeCount(t *testing.T) {
 	_, err = r.ReadBytes(-1)
 	assert.Error(t, err)
 }
+
+func TestReaderUTF16StringSurrogatePair(t *testing.T) {
+	r := NewReader(bytes.NewReader([]byte{0x61, 0x00, 0x3d, 0xd8, 0x00, 0xde}))
+
+	s, err := r.UTF16String(6)
+	require.NoError(t, err)
+	assert.Equal(t, "a\U0001F600", s)
+}
