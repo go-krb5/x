@@ -63,16 +63,12 @@ func (enc *Encoder) writeStringsArray(v reflect.Value, tag reflect.StructTag, de
 	if ndrTag.HasValue(TagConformant) && !ndrTag.HasValue(TagVarying) {
 		// C706 14.3.5: a non-varying array of strings carries no offsets or actual counts of its own.
 		enc.ensureAlignment(typeAlignment(t, tag))
-		for _, p := range multiDimensionalIndexPermutations(sliceDimLengths(v, d)) {
-			a := v
-			for _, i := range p {
-				a = a.Index(i)
-			}
-			if err := enc.fill(a, tag, def); err != nil {
+		return forEachIndex(nil, sliceDimLengths(v, d), func(p []int) error {
+			if err := enc.fill(indexValue(v, p), tag, def); err != nil {
 				return fmt.Errorf("could not write index %v of string array: %v", p, err)
 			}
-		}
-		return nil
+			return nil
+		})
 	}
 	if err := enc.writeVaryingArray(v, tag, def); err != nil {
 		return fmt.Errorf("could not write string array: %v", err)

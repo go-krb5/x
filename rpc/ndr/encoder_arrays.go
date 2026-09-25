@@ -127,19 +127,13 @@ func (enc *Encoder) writeFixedArray(v reflect.Value, tag reflect.StructTag, def 
 		return nil
 	}
 	// Fixed array is multidimensional
-	ps := multiDimensionalIndexPermutations(l[:len(l)-1])
-	for _, p := range ps {
-		// Get current multi-dimensional index to write
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
+	return forEachIndex(nil, l[:len(l)-1], func(p []int) error {
 		// write the last dimension array
-		if err := enc.writeUniDimensionalFixedArray(a, tag, def); err != nil {
+		if err := enc.writeUniDimensionalFixedArray(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not write dimension %v of multi-dimensional fixed array: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (enc *Encoder) writeUniDimensionalFixedArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -188,17 +182,12 @@ func (enc *Encoder) writeMultiDimensionalConformantArray(v reflect.Value, d int,
 	// Write each element in the same permutation order the decoder reads.
 	_, et := sliceDimensions(v.Type())
 	enc.ensureAlignment(typeAlignment(et, tag))
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
-		if err := enc.fill(a, tag, def); err != nil {
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := enc.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not write index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (enc *Encoder) writeVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -237,17 +226,12 @@ func (enc *Encoder) writeMultiDimensionalVaryingArray(v reflect.Value, t reflect
 		}
 	}
 	enc.ensureAlignment(typeAlignment(t, tag))
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		a := v
-		for _, j := range p {
-			a = a.Index(j)
-		}
-		if err := enc.fill(a, tag, def); err != nil {
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := enc.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not write index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (enc *Encoder) writeConformantVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -300,23 +284,10 @@ func (enc *Encoder) writeMultiDimensionalConformantVaryingArray(v reflect.Value,
 	}
 	// Write each element in the same permutation order the decoder reads.
 	enc.ensureAlignment(typeAlignment(t, tag))
-	ps := multiDimensionalIndexPermutations(m)
-	for _, p := range ps {
-		a := v
-		var skip bool
-		for i, j := range p {
-			if j >= l[i] {
-				skip = true
-				break
-			}
-			a = a.Index(j)
-		}
-		if skip {
-			continue
-		}
-		if err := enc.fill(a, tag, def); err != nil {
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := enc.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not write index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }

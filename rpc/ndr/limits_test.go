@@ -111,13 +111,35 @@ func TestEncodeZeroDimensionMultiDimensionalArray(t *testing.T) {
 	assert.Empty(t, got.A)
 }
 
-func TestMultiDimensionalIndexPermutationsZeroDimension(t *testing.T) {
-	assert.Empty(t, multiDimensionalIndexPermutations([]int{0, 2, 2}),
-		"a zero-length dimension yields no index permutations")
-	assert.Empty(t, multiDimensionalIndexPermutations([]int{2, 0}),
-		"a zero-length inner dimension yields no index permutations")
-	assert.Len(t, multiDimensionalIndexPermutations([]int{2, 3}), 6,
-		"non-zero dimensions still enumerate every index")
+func TestForEachIndexZeroDimension(t *testing.T) {
+	assert.Empty(t, collectIndices(nil, []int{0, 2, 2}))
+	assert.Empty(t, collectIndices(nil, []int{2, 0}))
+}
+
+func TestForEachIndexRowMajor(t *testing.T) {
+	assert.Equal(t, [][]int{{0, 0}, {0, 1}, {0, 2}, {1, 0}, {1, 1}, {1, 2}}, collectIndices(nil, []int{2, 3}))
+	assert.Equal(t, [][]int{{1, 2}, {1, 3}, {2, 2}, {2, 3}}, collectIndices([]int{1, 2}, []int{2, 2}))
+}
+
+func TestDecodeMultiDimensionalVaryingAllocatesOnlyTheArray(t *testing.T) {
+	const objLen = 1 << 20
+	b := []byte{0x01, 0x10, 0x08, 0x00, 0xcc, 0xcc, 0xcc, 0xcc}
+	b = binary.LittleEndian.AppendUint32(b, objLen)
+	b = binary.LittleEndian.AppendUint32(b, 0)
+	body := binary.LittleEndian.AppendUint32(nil, 0x00020000)
+	for _, m := range []uint32{64, 64, 32} {
+		body = binary.LittleEndian.AppendUint32(body, m)
+	}
+	body = append(body, make([]byte, 24)...)
+	b = append(b, append(body, make([]byte, objLen-len(body))...)...)
+
+	var got StructWithMultiDimensionalConformantVaryingSlice
+	var err error
+	alloc := allocatedBy(t, func() {
+		err = NewDecoder(bytes.NewReader(b)).Decode(&got)
+	})
+	require.NoError(t, err)
+	assert.Less(t, alloc, uint64(8<<20))
 }
 
 func TestDecodeRejectsOversizedObjectBufferLength(t *testing.T) {
@@ -217,6 +239,15 @@ func varyingStream(objLen, offset, count uint32) []byte {
 	body = binary.LittleEndian.AppendUint32(body, offset)
 	body = binary.LittleEndian.AppendUint32(body, count)
 	return append(b, append(body, make([]byte, int(objLen)-len(body))...)...)
+}
+
+func collectIndices(base, l []int) [][]int {
+	var ps [][]int
+	_ = forEachIndex(base, l, func(p []int) error {
+		ps = append(ps, append([]int(nil), p...))
+		return nil
+	})
+	return ps
 }
 
 func allocatedBy(t *testing.T, f func()) uint64 {

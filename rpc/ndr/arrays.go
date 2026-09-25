@@ -74,33 +74,42 @@ func makeSubSlices(v reflect.Value, l []int) {
 	return
 }
 
-func multiDimensionalIndexPermutations(l []int) (ps [][]int) {
-	// A dimension of zero length has no elements, so the array as a whole has
-	// no index permutations. Returning the zeros permutation regardless would
-	// have the caller index an empty slice.
+func forEachIndex(base, l []int, f func(p []int) error) error {
 	for _, n := range l {
 		if n < 1 {
 			return nil
 		}
 	}
-	z := make([]int, len(l), len(l)) // The zeros permutation
-	ps = append(ps, z)
-	// for each dimension, in reverse
-	for i := len(l) - 1; i >= 0; i-- {
-		ws := make([][]int, len(ps))
-		copy(ws, ps)
-		//create a permutation for each of the iterations of the current dimension
-		for j := 1; j <= l[i]-1; j++ {
-			// For each existing permutation
-			for _, p := range ws {
-				np := make([]int, len(p), len(p))
-				copy(np, p)
-				np[i] = j
-				ps = append(ps, np)
+	if base == nil {
+		base = make([]int, len(l))
+	}
+	// Elements are visited in row-major order, the last dimension varying fastest, which is the order NDR
+	// transmits them. One index is reused between calls so that no memory is allocated per element.
+	p := make([]int, len(l))
+	copy(p, base)
+	for {
+		if err := f(p); err != nil {
+			return err
+		}
+		i := len(l) - 1
+		for ; i >= 0; i-- {
+			p[i]++
+			if p[i] < base[i]+l[i] {
+				break
 			}
+			p[i] = base[i]
+		}
+		if i < 0 {
+			return nil
 		}
 	}
-	return
+}
+
+func indexValue(v reflect.Value, p []int) reflect.Value {
+	for _, i := range p {
+		v = v.Index(i)
+	}
+	return v
 }
 
 func (dec *Decoder) precedingMax() (uint32, error) {
@@ -128,20 +137,13 @@ func (dec *Decoder) fillFixedArray(v reflect.Value, tag reflect.StructTag, def *
 		return nil
 	}
 	// Fixed array is multidimensional
-	ps := multiDimensionalIndexPermutations(l[:len(l)-1])
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
+	return forEachIndex(nil, l[:len(l)-1], func(p []int) error {
 		// fill with the last dimension array
-		err := dec.fillUniDimensionalFixedArray(a, tag, def)
-		if err != nil {
+		if err := dec.fillUniDimensionalFixedArray(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill dimension %v of multi-dimensional fixed array: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (dec *Decoder) fillUniDimensionalFixedArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -217,19 +219,12 @@ func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, 
 	// Get all permutations of the indexes and go through each and fill
 	_, et := sliceDimensions(v.Type())
 	dec.ensureAlignment(typeAlignment(et, tag))
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (dec *Decoder) fillVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -323,28 +318,13 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 
 	// Get all permutations of the indexes and go through each and fill
 	dec.ensureAlignment(typeAlignment(t, tag))
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		var os bool // should this permutation be skipped due to the offset of any of the dimensions?
-		for i, j := range p {
-			if j < o[i] {
-				os = true
-				break
-			}
-			a = a.Index(j)
-		}
-		if os {
-			// This permutation should be skipped as it is less than the offset for one of the dimensions.
-			continue
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	// Only the elements from each dimension's offset for its actual count are transmitted.
+	return forEachIndex(o, c, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
 func (dec *Decoder) fillConformantVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
@@ -455,26 +435,11 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 
 	// Get all permutations of the indexes and go through each and fill
 	dec.ensureAlignment(typeAlignment(t, tag))
-	ps := multiDimensionalIndexPermutations(m)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		var os bool // should this permutation be skipped due to the offset of any of the dimensions or max is higher than the actual count being passed
-		for i, j := range p {
-			if j < o[i] || j >= l[i] {
-				os = true
-				break
-			}
-			a = a.Index(j)
-		}
-		if os {
-			// This permutation should be skipped as it is less than the offset for one of the dimensions.
-			continue
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	// Only the elements from each dimension's offset for its actual count are transmitted.
+	return forEachIndex(o, c, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
