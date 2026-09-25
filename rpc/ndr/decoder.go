@@ -445,7 +445,10 @@ func (dec *Decoder) fillStruct(v reflect.Value, localDef *[]deferedPtr) error {
 		// Union handling
 		if !unionTag.IsValid() {
 			// Is this field a union tag?
-			unionTag = dec.isUnion(v.Field(i), structTag)
+			unionTag, err = dec.isUnion(v.Field(i), structTag)
+			if err != nil {
+				return err
+			}
 		} else {
 			// What is the selected field value of the union if we don't already know
 			if unionField == "" {

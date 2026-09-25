@@ -23,7 +23,7 @@ const (
 	TagUnionField          = "unionField"
 )
 
-func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r reflect.Value) {
+func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r reflect.Value, err error) {
 	ndrTag := parseTags(tag)
 	if !ndrTag.HasValue(TagUnionTag) {
 		return
@@ -31,11 +31,22 @@ func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r refle
 	r = field
 	// For a non-encapsulated union, the discriminant is marshalled into the transmitted data stream twice: once as the
 	// field or parameter, which is referenced by the switch_is construct, in the procedure argument list; and once as
-	// the first part of the union representation.
+	// the first part of the union representation. The copy is read in the discriminant's own representation, so an
+	// enum discriminant occupies two octets whatever the width of its Go type.
 	if !ndrTag.HasValue(TagEncapsulated) {
-		_ = dec.discard(int(r.Type().Size()))
+		c := reflect.New(field.Type()).Elem()
+		if err = dec.fill(c, discriminantTag(ndrTag), &[]deferedPtr{}); err != nil {
+			return r, fmt.Errorf("could not read union discriminant: %v", err)
+		}
 	}
 	return
+}
+
+func discriminantTag(ndrTag tags) reflect.StructTag {
+	if ndrTag.HasValue(TagEnum) {
+		return reflect.StructTag(`ndr:"enum"`)
+	}
+	return ""
 }
 
 func unionSelectedField(union, discriminant reflect.Value) (string, error) {
