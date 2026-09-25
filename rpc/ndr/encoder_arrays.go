@@ -165,6 +165,8 @@ func (enc *Encoder) writeUniDimensionalConformantArray(v reflect.Value, tag refl
 	if err != nil {
 		return err
 	}
+	// Array data is aligned to its element type even when no element follows, as MIDL generated stubs do.
+	enc.ensureAlignment(typeAlignment(v.Type().Elem(), tag))
 	for i := 0; i < int(m); i++ {
 		if err := enc.fill(v.Index(i), tag, def); err != nil {
 			return fmt.Errorf("could not write index %d of uni-dimensional conformant array: %v", i, err)
@@ -184,6 +186,8 @@ func (enc *Encoder) writeMultiDimensionalConformantArray(v reflect.Value, d int,
 		l[i] = int(m)
 	}
 	// Write each element in the same permutation order the decoder reads.
+	_, et := sliceDimensions(v.Type())
+	enc.ensureAlignment(typeAlignment(et, tag))
 	ps := multiDimensionalIndexPermutations(l)
 	for _, p := range ps {
 		a := v
@@ -212,6 +216,7 @@ func (enc *Encoder) writeUniDimensionalVaryingArray(v reflect.Value, tag reflect
 	if err := enc.writeUint32(uint32(v.Len())); err != nil {
 		return fmt.Errorf("could not write actual count of uni-dimensional varying array: %v", err)
 	}
+	enc.ensureAlignment(typeAlignment(v.Type().Elem(), tag))
 	for i := 0; i < v.Len(); i++ {
 		if err := enc.fill(v.Index(i), tag, def); err != nil {
 			return fmt.Errorf("could not write index %d of uni-dimensional varying array: %v", i, err)
@@ -231,6 +236,7 @@ func (enc *Encoder) writeMultiDimensionalVaryingArray(v reflect.Value, t reflect
 			return fmt.Errorf("could not write actual count of dimension %d: %v", i+1, err)
 		}
 	}
+	enc.ensureAlignment(typeAlignment(t, tag))
 	ps := multiDimensionalIndexPermutations(l)
 	for _, p := range ps {
 		a := v
@@ -263,6 +269,7 @@ func (enc *Encoder) writeUniDimensionalConformantVaryingArray(v reflect.Value, t
 	if err := enc.writeUint32(uint32(v.Len())); err != nil {
 		return fmt.Errorf("could not write actual count of uni-dimensional conformant varying array: %v", err)
 	}
+	enc.ensureAlignment(typeAlignment(v.Type().Elem(), tag))
 	for i := 0; i < v.Len(); i++ {
 		if err := enc.fill(v.Index(i), tag, def); err != nil {
 			return fmt.Errorf("could not write index %d of uni-dimensional conformant varying array: %v", i, err)
@@ -292,6 +299,7 @@ func (enc *Encoder) writeMultiDimensionalConformantVaryingArray(v reflect.Value,
 		}
 	}
 	// Write each element in the same permutation order the decoder reads.
+	enc.ensureAlignment(typeAlignment(t, tag))
 	ps := multiDimensionalIndexPermutations(m)
 	for _, p := range ps {
 		a := v
