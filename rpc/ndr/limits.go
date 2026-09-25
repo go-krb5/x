@@ -28,15 +28,26 @@ func (dec *Decoder) objectBufferLen() int {
 	return dec.objLen
 }
 
-func (dec *Decoder) checkArrayLength(n int) error {
-	if n < 0 {
-		return Errorf("array length %d is negative", n)
+func (dec *Decoder) checkUntransmitted(t reflect.Type, allocated, transmitted int) error {
+	// Elements named by an offset, or beyond the actual counts of a conformant varying array, are allocated without
+	// appearing in the stream, so their memory rather than their count is bounded by the object buffer.
+	size := int(t.Size())
+	if size < 1 {
+		size = 1
 	}
-	if n > dec.objectBufferLen() {
-		return Errorf("array length %d exceeds the %d octets of the object buffer",
-			n, dec.objectBufferLen())
+	if n := allocated - transmitted; n > dec.objectBufferLen()/size {
+		return Errorf("%d elements of %s that are allocated but not transmitted exceed the %d octets of the object buffer",
+			n, t, dec.objectBufferLen())
 	}
 	return nil
+}
+
+func product(l []int) int {
+	n := 1
+	for _, x := range l {
+		n *= x
+	}
+	return n
 }
 
 func (dec *Decoder) arrayBound(offset, count uint32) (int, error) {
