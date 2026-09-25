@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"unicode/utf16"
 
 	"github.com/go-krb5/x/internal/saferio"
 )
@@ -85,17 +86,16 @@ func (r *Reader) FileTime() (f FileTime, err error) {
 
 // UTF16String returns a string that is UTF16 encoded in a byte slice. n is the number of bytes representing the string
 func (r *Reader) UTF16String(n int) (str string, err error) {
-	//Length divided by 2 as each run is 16bits = 2bytes
-	s := make([]rune, n/2, n/2)
-	for i := 0; i < len(s); i++ {
-		var u uint16
-		u, err = r.Uint16()
-		if err != nil {
-			return
-		}
-		s[i] = rune(u)
+	b, err := r.ReadBytes(n - n%SizeUint16)
+	if err != nil {
+		return
 	}
-	str = string(s)
+	// Length divided by 2 as each code unit is 16bits = 2bytes.
+	u := make([]uint16, len(b)/SizeUint16)
+	for i := range u {
+		u[i] = binary.LittleEndian.Uint16(b[i*SizeUint16:])
+	}
+	str = string(utf16.Decode(u))
 	return
 }
 
