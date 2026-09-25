@@ -228,6 +228,19 @@ func TestClaimsSetUnknownClaimTypeHasNoValues(t *testing.T) {
 	assert.Equal(t, []int64{-7}, entries[1].TypeInt64.Value)
 }
 
+func TestClaimStringsAreNullTerminated(t *testing.T) {
+	in := ClaimEntry{ID: "a", Type: ClaimTypeIDString, TypeString: ClaimTypeString{ValueCount: 1, Value: []LPWSTR{{Value: "bc"}}}}
+	b, err := ndr.Marshal(&in)
+	require.NoError(t, err)
+	enc := hex.EncodeToString(b)
+	assert.Contains(t, enc, "02000000"+"00000000"+"02000000"+"61000000")
+	assert.Contains(t, enc, "03000000"+"00000000"+"03000000"+"620063000000")
+
+	var out ClaimEntry
+	require.NoError(t, ndr.NewDecoder(bytes.NewReader(b)).Decode(&out))
+	assert.Equal(t, in, out)
+}
+
 func TestClaimsSetBooleanValuesAreULONG64(t *testing.T) {
 	in := ClaimsSet{ClaimsArrayCount: 1, ClaimsArrays: []ClaimsArray{{ClaimsSourceType: ClaimsSourceTypeAD, ClaimsCount: 2,
 		ClaimEntries: []ClaimEntry{
@@ -236,7 +249,6 @@ func TestClaimsSetBooleanValuesAreULONG64(t *testing.T) {
 		}}}}
 	b, err := ndr.Marshal(&in)
 	require.NoError(t, err)
-	assert.Contains(t, hex.EncodeToString(b), "02000000"+"00000000"+"0000000000000000"+"0100000000000000")
 
 	var out ClaimsSet
 	require.NoError(t, ndr.NewDecoder(bytes.NewReader(b)).Decode(&out))

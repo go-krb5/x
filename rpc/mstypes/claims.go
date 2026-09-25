@@ -118,7 +118,7 @@ type ClaimsArray struct {
 
 // ClaimEntry is a NDR union that implements https://msdn.microsoft.com/en-us/library/hh536374.aspx
 type ClaimEntry struct {
-	ID         string           `ndr:"pointer,conformant,varying"`
+	ID         string           `ndr:"pointer,conformant,varying,nullterminated"`
 	Type       uint16           `ndr:"unionTag"`
 	TypeInt64  ClaimTypeInt64   `ndr:"unionField"`
 	TypeUInt64 ClaimTypeUInt64  `ndr:"unionField"`
