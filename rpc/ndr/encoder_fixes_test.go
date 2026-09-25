@@ -138,6 +138,14 @@ func TestEncodeDistinctReferentIds(t *testing.T) {
 	assert.Equal(t, []uint32{2}, got.B)
 }
 
+func TestEncodeRawBytesLongerThanSizeErrors(t *testing.T) {
+	var buf bytes.Buffer
+
+	err := NewEncoder(&buf).Encode(&structWithUnbackedRawBytes{N: 2, B: unbackedRawBytes{1, 2, 3, 4}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not equal size")
+}
+
 type testUnionWithConformant struct {
 	Tag    uint32   `ndr:"unionTag"`
 	Value1 []uint32 `ndr:"unionField,conformant"`
