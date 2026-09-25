@@ -17,9 +17,14 @@ func (dec *Decoder) fillPipe(v reflect.Value, tag reflect.StructTag) error {
 	c := reflect.MakeSlice(v.Type(), int(s), int(s))
 	for s != 0 {
 		for i := 0; i < int(s); i++ {
-			err := dec.fill(c.Index(i), tag, &[]deferedPtr{})
+			var def []deferedPtr
+			err := dec.fill(c.Index(i), tag, &def)
 			if err != nil {
 				return fmt.Errorf("could not fill element %d of pipe: %v", i, err)
+			}
+			// A pipe chunk has nowhere to carry deferred referents, so their octets would be read as the next chunk.
+			if len(def) > 0 {
+				return fmt.Errorf("could not fill element %d of pipe: pointer fields within a pipe element are not supported", i)
 			}
 		}
 		s, err = dec.readUint32() // read element count of first chunk

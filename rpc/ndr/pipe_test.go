@@ -6,12 +6,15 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-const testPipe = "04000000010000000200000003000000040000000300000001000000020000000300000000000000"
+func TestDecodePipeWithPointerElementErrors(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "01000000" + "04000200" + "07000000" + "00000000")
+	require.NoError(t, err)
 
-type structWithPipe struct {
-	A []uint32 `ndr:"pipe"`
+	var got structWithPointerBearingPipe
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
 }
 
 func TestFillPipe(t *testing.T) {
@@ -25,4 +28,10 @@ func TestFillPipe(t *testing.T) {
 	}
 	tp := []uint32{1, 2, 3, 4, 1, 2, 3}
 	assert.Equal(t, tp, a.A, "Value of pipe not as expected")
+}
+
+const testPipe = "04000000010000000200000003000000040000000300000001000000020000000300000000000000"
+
+type structWithPipe struct {
+	A []uint32 `ndr:"pipe"`
 }
