@@ -889,8 +889,16 @@ func parseField(v reflect.Value, bytes []byte, initOffset int, params fieldParam
 	// token, and callers read it by unmarshalling the OID with explicit
 	// parameters and continuing through the returned rest. Demanding an exact
 	// match would reject every GSSAPI token.
+	//
+	// That only applies to a top-level value. Within a structure or sequence the
+	// octets left inside the explicit tag would be parsed as the following
+	// sibling, so a nested element must end exactly where its explicit tag does.
 	if explicitEnd >= 0 && offset > explicitEnd {
 		err = StructuralError{"inner element extends past its explicit tag"}
+		return
+	}
+	if explicitEnd >= 0 && depth > 1 && offset < explicitEnd {
+		err = StructuralError{"inner element ends before its explicit tag"}
 		return
 	}
 
