@@ -30,6 +30,7 @@ type Encoder struct {
 	referent      uint32        // last referent id allocated for a non-NULL pointer
 	base          int           // octets already written to w; alignment is relative to base+buf.Len()
 	started       bool          // whether the stream's common header has been written
+	err           error         // terminal error of a write that left a partial type in the stream
 }
 
 func (enc *Encoder) nextReferent() uint32 {
@@ -86,6 +87,9 @@ func Marshal(s any) ([]byte, error) {
 // therefore append successive top-level types to the same stream. Use a new
 // Encoder, or Marshal, for an independent stream.
 func (enc *Encoder) Encode(s any) error {
+	if enc.err != nil {
+		return enc.err
+	}
 	if err := enc.setEndianness(); err != nil {
 		return err
 	}
@@ -143,6 +147,16 @@ func (enc *Encoder) Encode(s any) error {
 	// so a type that fails to encode leaves it to be written by the next.
 	if n > 0 {
 		enc.started = true
+	}
+	if n < len(out) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		// A partial type cannot be completed or withdrawn, so nothing appended after it would decode. A write that
+		// wrote nothing leaves the stream intact and may be retried.
+		if n > 0 {
+			enc.err = err
+		}
 	}
 
 	return err

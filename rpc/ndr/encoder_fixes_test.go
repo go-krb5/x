@@ -3,6 +3,8 @@ package ndr
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -168,6 +170,38 @@ func TestEncodeRejectsEndiannessChangeWithinStream(t *testing.T) {
 	assert.Equal(t, n, buf.Len())
 }
 
+func TestEncodeShortWriteIsTerminal(t *testing.T) {
+	w := &limitedWriter{limit: 4}
+	enc := NewEncoder(w)
+	assert.ErrorIs(t, enc.Encode(&structWithSingleUint32{A: 1}), io.ErrShortWrite)
+	assert.ErrorIs(t, enc.Encode(&structWithSingleUint32{A: 2}), io.ErrShortWrite)
+	assert.Equal(t, 4, w.buf.Len())
+}
+
+func TestEncodePartialWriteErrorIsTerminal(t *testing.T) {
+	failure := errors.New("connection reset")
+	w := &limitedWriter{limit: 4, err: failure}
+	enc := NewEncoder(w)
+	assert.ErrorIs(t, enc.Encode(&structWithSingleUint32{A: 1}), failure)
+	w.limit, w.err = -1, nil
+	assert.ErrorIs(t, enc.Encode(&structWithSingleUint32{A: 2}), failure)
+	assert.Equal(t, 4, w.buf.Len())
+}
+
+func TestEncodeRetriesAfterWriteOfNothing(t *testing.T) {
+	failure := errors.New("temporarily unavailable")
+	w := &limitedWriter{limit: 0, err: failure}
+	enc := NewEncoder(w)
+	assert.ErrorIs(t, enc.Encode(&structWithSingleUint32{A: 1}), failure)
+
+	w.limit, w.err = -1, nil
+	require.NoError(t, enc.Encode(&structWithSingleUint32{A: 2}))
+
+	var out structWithSingleUint32
+	require.NoError(t, NewDecoder(bytes.NewReader(w.buf.Bytes())).Decode(&out))
+	assert.Equal(t, uint32(2), out.A)
+}
+
 type testUnionWithConformant struct {
 	Tag    uint32   `ndr:"unionTag"`
 	Value1 []uint32 `ndr:"unionField,conformant"`
@@ -234,4 +268,18 @@ type structWithTwoPointers struct {
 
 type structWithSingleUint32 struct {
 	A uint32
+}
+
+type limitedWriter struct {
+	buf   bytes.Buffer
+	limit int
+	err   error
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if w.limit >= 0 && len(p) > w.limit {
+		p = p[:w.limit]
+	}
+	n, _ := w.buf.Write(p)
+	return n, w.err
 }
