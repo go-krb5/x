@@ -141,6 +141,63 @@ func Test_ClientClaimsInfoMultiEntry_Unmarshal(t *testing.T) {
 	assert.Equal(t, CompressionFormatNone, m.CompressionFormat, "compression format not as expected")
 }
 
+func Test_ClaimsSet_XPressHuffman(t *testing.T) {
+	b, err := hex.DecodeString(ClaimsSetBytesCompressionFormatXPressHuff)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := &ClaimsSetMetadata{
+		ClaimsSetSize:             uint32(len(b)),
+		ClaimsSetBytes:            b,
+		CompressionFormat:         CompressionFormatXPressHuff,
+		UncompressedClaimsSetSize: 696,
+	}
+
+	k, err := m.ClaimsSet()
+	if err != nil {
+		t.Fatalf("error retrieving ClaimsSet %v", err)
+	}
+
+	assert.Equal(t, b, m.ClaimsSetBytes, "compressed bytes must not be replaced")
+	assert.Equal(t, uint32(1), k.ClaimsArrayCount, "claims array count not as expected")
+	assert.Equal(t, uint32(4), k.ClaimsArrays[0].ClaimsCount, "claims count not as expected")
+
+	entries := k.ClaimsArrays[0].ClaimEntries
+	assert.Equal(t, "ad://ext/otherIpPhone:88d614eeb8f14355", entries[0].ID)
+	assert.Equal(t, []LPWSTR{{"str1"}, {"str2"}, {"str3"}, {"str4"}}, entries[0].TypeString.Value)
+	assert.Equal(t, []int64{28}, entries[1].TypeInt64.Value)
+	assert.Equal(t, []uint64{655369, 65543, 65542, 65536}, entries[2].TypeUInt64.Value)
+	assert.Equal(t, []LPWSTR{{"testuser1"}}, entries[3].TypeString.Value)
+}
+
+func Test_ClaimsSet_XPressHuffmanCorrupt(t *testing.T) {
+	m := &ClaimsSetMetadata{
+		ClaimsSetBytes:            []byte{1, 2, 3},
+		CompressionFormat:         CompressionFormatXPressHuff,
+		UncompressedClaimsSetSize: 696,
+	}
+
+	_, err := m.ClaimsSet()
+	assert.Error(t, err)
+}
+
+func Test_ClaimsSet_XPressHuffmanUncompressedSizeTooLarge(t *testing.T) {
+	b, err := hex.DecodeString(ClaimsSetBytesCompressionFormatXPressHuff)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	m := &ClaimsSetMetadata{
+		ClaimsSetBytes:            b,
+		CompressionFormat:         CompressionFormatXPressHuff,
+		UncompressedClaimsSetSize: 0xffffffff,
+	}
+
+	_, err = m.ClaimsSet()
+	assert.ErrorContains(t, err, "exceeds")
+}
+
 const (
 	ClientClaimsInfoStr       = "01100800cccccccc000100000000000000000200d80000000400020000000000d8000000000000000000000000000000d800000001100800ccccccccc80000000000000000000200010000000400020000000000000000000000000001000000010000000100000008000200010000000c000200030003000100000010000200290000000000000029000000610064003a002f002f006500780074002f00730041004d004100630063006f0075006e0074004e0061006d0065003a0038003800640035006400390030003800350065006100350063003000630030000000000001000000140002000a000000000000000a00000074006500730074007500730065007200310000000000000000000000"
 	ClientClaimsInfoInt       = "01100800cccccccce00000000000000000000200b80000000400020000000000b8000000000000000000000000000000b800000001100800cccccccca80000000000000000000200010000000400020000000000000000000000000001000000010000000100000008000200010000000c0002000100010001000000100002002a000000000000002a000000610064003a002f002f006500780074002f006d007300440053002d0053007500700070006f00720074006500640045003a0038003800640035006400650061003800660031006100660035006600310039000000010000001c0000000000000000000000"

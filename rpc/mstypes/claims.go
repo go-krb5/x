@@ -6,8 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"golang.org/x/net/http2/hpack"
-
+	"github.com/go-krb5/x/internal/xpress"
 	"github.com/go-krb5/x/rpc/ndr"
 )
 
@@ -18,6 +17,8 @@ const (
 	CompressionFormatXPress     uint16 = 3 // plain LZ77
 	CompressionFormatXPressHuff uint16 = 4 // LZ77+Huffman - The Huffman variant of the XPRESS compression format uses LZ77-style dictionary compression combined with Huffman coding.
 )
+
+const maxUncompressedClaimsSetSize = 16 << 20
 
 // ClaimsSourceTypeAD https://msdn.microsoft.com/en-us/library/hh553809.aspx
 const ClaimsSourceTypeAD uint16 = 1
@@ -73,14 +74,19 @@ func (m *ClaimsSetMetadata) ClaimsSet() (c ClaimsSet, err error) {
 		err = fmt.Errorf("ClaimsSet compressed, format XPress not currently supported: %s", s)
 		return
 	case CompressionFormatXPressHuff:
-		var b []byte
-		buff := bytes.NewBuffer(b)
-		_, e := hpack.HuffmanDecode(buff, m.ClaimsSetBytes)
-		if e != nil {
-			err = fmt.Errorf("error deflating: %v", e)
+		// The uncompressed size is taken from the PAC and sizes the output buffer, so it is bounded before decompressing.
+		if m.UncompressedClaimsSetSize > maxUncompressedClaimsSetSize {
+			err = fmt.Errorf("ClaimsSet uncompressed size %d exceeds the maximum of %d", m.UncompressedClaimsSetSize, maxUncompressedClaimsSetSize)
 			return
 		}
-		m.ClaimsSetBytes = buff.Bytes()
+		b, e := xpress.DecompressHuffman(m.ClaimsSetBytes, int(m.UncompressedClaimsSetSize))
+		if e != nil {
+			err = fmt.Errorf("error decompressing ClaimsSet: %v", e)
+			return
+		}
+		dec := ndr.NewDecoder(bytes.NewReader(b))
+		err = dec.Decode(&c)
+		return
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(m.ClaimsSetBytes))
 	err = dec.Decode(&c)
