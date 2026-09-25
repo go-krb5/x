@@ -11,6 +11,8 @@ import (
 // The discriminating tag field must have the struct tag: `ndr:"unionTag"`
 // If the union is encapsulated the discriminating tag field must have the struct tag: `ndr:"encapsulated"`
 // The possible value fields that can be selected from must have the struct tag: `ndr:"unionField"`
+// SwitchFunc returns the name of the selected field, or an empty string to select an arm with no member, such as an
+// empty [default] arm, in which case no union field is transmitted.
 type Union interface {
 	SwitchFunc(t interface{}) string
 }
@@ -23,7 +25,7 @@ const (
 	TagUnionField          = "unionField"
 )
 
-func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r reflect.Value) {
+func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r reflect.Value, err error) {
 	ndrTag := parseTags(tag)
 	if !ndrTag.HasValue(TagUnionTag) {
 		return
@@ -31,14 +33,24 @@ func (dec *Decoder) isUnion(field reflect.Value, tag reflect.StructTag) (r refle
 	r = field
 	// For a non-encapsulated union, the discriminant is marshalled into the transmitted data stream twice: once as the
 	// field or parameter, which is referenced by the switch_is construct, in the procedure argument list; and once as
-	// the first part of the union representation.
+	// the first part of the union representation. The copy is read in the discriminant's own representation, so an
+	// enum discriminant occupies two octets whatever the width of its Go type.
 	if !ndrTag.HasValue(TagEncapsulated) {
-		dec.r.Discard(int(r.Type().Size()))
+		c := reflect.New(field.Type()).Elem()
+		if err = dec.fill(c, discriminantTag(ndrTag), &[]deferedPtr{}); err != nil {
+			return r, fmt.Errorf("could not read union discriminant: %v", err)
+		}
 	}
 	return
 }
 
-// unionSelectedField returns the field name of which of the union values to fill
+func discriminantTag(ndrTag tags) reflect.StructTag {
+	if ndrTag.HasValue(TagEnum) {
+		return reflect.StructTag(`ndr:"enum"`)
+	}
+	return ""
+}
+
 func unionSelectedField(union, discriminant reflect.Value) (string, error) {
 	if !union.Type().Implements(reflect.TypeOf(new(Union)).Elem()) {
 		return "", errors.New("struct does not implement union interface")
@@ -50,8 +62,21 @@ func unionSelectedField(union, discriminant reflect.Value) (string, error) {
 		return "", fmt.Errorf("could not find a selection function called %s in the unions struct representation", unionSelectionFuncName)
 	}
 	f := sf.Call(args)
-	if f[0].Kind() != reflect.String || f[0].String() == "" {
+	if f[0].Kind() != reflect.String {
 		return "", fmt.Errorf("the union select function did not return a string for the name of the field to fill")
 	}
-	return f[0].String(), nil
+	name := f[0].String()
+	if name == "" {
+		// An arm with no member, such as a [default] arm declared as an empty statement.
+		return "", nil
+	}
+	field, ok := union.Type().FieldByName(name)
+	if ok {
+		ndrTag := parseTags(field.Tag)
+		ok = ndrTag.HasValue(TagUnionField)
+	}
+	if !ok {
+		return "", fmt.Errorf("the union select function returned %q, which is not a union field of %s", name, union.Type())
+	}
+	return name, nil
 }

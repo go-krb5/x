@@ -1,25 +1,27 @@
 package ndr
 
-// writeCommonHeader writes the NDR common header for Type Serialization v1.
-// See header.go for the layout. The encoder always emits little-endian, ASCII,
-// IEEE floating point output: version(1), endianness/charenc byte, header
-// length(8) and the 0xcccccccc filler.
+import "encoding/binary"
+
 func (enc *Encoder) writeCommonHeader() error {
 	enc.ch.Version = protocolVersion
 	enc.ch.HeaderLength = commonHeaderBytes
 	enc.ch.CharacterEncoding = ascii
 	enc.ch.FloatRepresentation = ieee
+	representation := byte(littleEndian)
+	if enc.ch.Endianness == binary.ByteOrder(binary.BigEndian) {
+		representation = byte(bigEndian)
+	}
 	// Version
 	if err := enc.buf.WriteByte(protocolVersion); err != nil {
 		return Errorf("could not write common header version: %v", err)
 	}
 	// Endianness (high nibble) and character encoding (low nibble)
-	if err := enc.buf.WriteByte(byte(littleEndian)<<4 | enc.ch.CharacterEncoding); err != nil {
+	if err := enc.buf.WriteByte(representation<<4 | enc.ch.CharacterEncoding); err != nil {
 		return Errorf("could not write common header endianness: %v", err)
 	}
 	// Common header length
 	b := make([]byte, 2)
-	enc.ch.Endianness.PutUint16(b, commonHeaderBytes)
+	binary.LittleEndian.PutUint16(b, commonHeaderBytes)
 	if err := enc.writeBytes(b); err != nil {
 		return Errorf("could not write common header length: %v", err)
 	}
@@ -31,10 +33,6 @@ func (enc *Encoder) writeCommonHeader() error {
 	return nil
 }
 
-// writePrivateHeader writes the NDR private header for Type Serialization v1:
-// the object buffer length (which must include padding and exclude the header
-// itself) followed by a 4-byte zero filler. The length is backfilled by Encode
-// once the body size is known.
 func (enc *Encoder) writePrivateHeader(objectBufferLength uint32) error {
 	b := make([]byte, 4)
 	enc.ch.Endianness.PutUint32(b, objectBufferLength)

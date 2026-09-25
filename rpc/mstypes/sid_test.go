@@ -5,13 +5,10 @@ import (
 	"encoding/hex"
 	"testing"
 
-	"github.com/go-krb5/x/rpc/ndr"
 	"github.com/stretchr/testify/assert"
-)
 
-type testSIDStruct struct {
-	SID RPCSID `ndr:"pointer"`
-}
+	"github.com/go-krb5/x/rpc/ndr"
+)
 
 func Test_RPCSIDDecode(t *testing.T) {
 	var tests = []struct {
@@ -38,7 +35,7 @@ func Test_RPCSIDDecode(t *testing.T) {
 
 	for i, test := range tests {
 		a := new(testSIDStruct)
-		hexStr := TestNDRHeader + "01020304" + test.Hex //The 01000000 is a dumby value for the pointer uint32
+		hexStr := TestNDRHeader + "01020304" + test.Hex
 		b, _ := hex.DecodeString(hexStr)
 		dec := ndr.NewDecoder(bytes.NewReader(b))
 		err := dec.Decode(a)
@@ -48,4 +45,8 @@ func Test_RPCSIDDecode(t *testing.T) {
 		assert.Equal(t, test.SID, a.SID.String(), "SID not as expected for test %d", i+1)
 
 	}
+}
+
+type testSIDStruct struct {
+	SID RPCSID `ndr:"pointer"`
 }

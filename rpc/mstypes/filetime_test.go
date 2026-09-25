@@ -3,17 +3,16 @@ package mstypes
 import (
 	"bytes"
 	"encoding/hex"
-	"github.com/go-krb5/x/rpc/ndr"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
-)
 
-const TestNDRHeader = "01100800cccccccca00400000000000000000200"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/go-krb5/x/rpc/ndr"
+)
 
 func TestFileTime(t *testing.T) {
 	t.Parallel()
-	//2007-02-22 17:00:01.6382155
 	tt := time.Date(2007, 2, 22, 17, 0, 1, 638215500, time.UTC)
 	ft := GetFileTime(tt)
 	assert.Equal(t, tt.Unix(), ft.Unix(), "Unix epoch time not as expected")
@@ -50,3 +49,21 @@ func TestDecodeFileTime(t *testing.T) {
 		assert.Equal(t, test.UnixNano, a.Time().UnixNano(), "Time value not as expected for test: %d", i+1)
 	}
 }
+
+func TestFileTimeBeyond2262(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []time.Time{
+		time.Date(2266, 1, 1, 0, 0, 0, 100, time.UTC),
+		time.Date(2500, 6, 1, 12, 30, 0, 0, time.UTC),
+	} {
+		ft := GetFileTime(tt)
+		assert.Equal(t, tt.Unix(), ft.Unix(), "Unix epoch time not as expected for %v", tt)
+		assert.Equal(t, tt, ft.Time(), "Golang time object returned from FileTime not as expected for %v", tt)
+	}
+
+	never := FileTime{LowDateTime: 0xffffffff, HighDateTime: 0x7fffffff}
+	assert.Equal(t, time.Date(30828, 9, 14, 2, 48, 5, 477580700, time.UTC), never.Time())
+}
+
+const TestNDRHeader = "01100800cccccccca00400000000000000000200"

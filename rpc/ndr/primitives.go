@@ -3,7 +3,9 @@ package ndr
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
+	"reflect"
 )
 
 // Byte sizes of primitive types
@@ -51,10 +53,6 @@ const (
 
 // Double is an NDR defined double-precision floating-point data type
 
-// readBool reads a byte representing a boolean.
-// NDR represents a Boolean as one octet.
-// It represents a value of FALSE as a zero octet, an octet in which every bit is reset.
-// It represents a value of TRUE as a non-zero octet, an octet in which one or more bits are set.
 func (dec *Decoder) readBool() (bool, error) {
 	i, err := dec.readUint8()
 	if err != nil {
@@ -66,7 +64,6 @@ func (dec *Decoder) readBool() (bool, error) {
 	return false, nil
 }
 
-// readChar reads bytes representing a 8bit ASCII integer cast to a rune.
 func (dec *Decoder) readChar() (rune, error) {
 	var r rune
 	a, err := dec.readUint8()
@@ -76,16 +73,15 @@ func (dec *Decoder) readChar() (rune, error) {
 	return rune(a), nil
 }
 
-// readUint8 reads bytes representing a 8bit unsigned integer.
 func (dec *Decoder) readUint8() (uint8, error) {
 	b, err := dec.r.ReadByte()
 	if err != nil {
 		return uint8(0), err
 	}
+	dec.pos++
 	return uint8(b), nil
 }
 
-// readUint16 reads bytes representing a 16bit unsigned integer.
 func (dec *Decoder) readUint16() (uint16, error) {
 	dec.ensureAlignment(SizeUint16)
 	b, err := dec.readBytes(SizeUint16)
@@ -95,7 +91,6 @@ func (dec *Decoder) readUint16() (uint16, error) {
 	return dec.ch.Endianness.Uint16(b), nil
 }
 
-// readUint32 reads bytes representing a 32bit unsigned integer.
 func (dec *Decoder) readUint32() (uint32, error) {
 	dec.ensureAlignment(SizeUint32)
 	b, err := dec.readBytes(SizeUint32)
@@ -105,7 +100,6 @@ func (dec *Decoder) readUint32() (uint32, error) {
 	return dec.ch.Endianness.Uint32(b), nil
 }
 
-// readUint32 reads bytes representing a 32bit unsigned integer.
 func (dec *Decoder) readUint64() (uint64, error) {
 	dec.ensureAlignment(SizeUint64)
 	b, err := dec.readBytes(SizeUint64)
@@ -175,7 +169,6 @@ func (dec *Decoder) readInt64() (int64, error) {
 	return i, nil
 }
 
-// https://en.wikipedia.org/wiki/IEEE_754-1985
 func (dec *Decoder) readFloat32() (f float32, err error) {
 	dec.ensureAlignment(SizeSingle)
 	b, err := dec.readBytes(SizeSingle)
@@ -198,14 +191,35 @@ func (dec *Decoder) readFloat64() (f float64, err error) {
 	return
 }
 
-// NDR enforces NDR alignment of primitive data; that is, any primitive of size n octets is aligned at a octet stream
-// index that is a multiple of n. (In this version of NDR, n is one of {1, 2, 4, 8}.) An octet stream index indicates
-// the number of an octet in an octet stream when octets are numbered, beginning with 0, from the first octet in the
-// stream. Where necessary, an alignment gap, consisting of octets of unspecified value, precedes the representation
-// of a primitive. The gap is of the smallest size sufficient to align the primitive.
+func (dec *Decoder) fillEnum(v reflect.Value) error {
+	i, err := dec.readInt16()
+	if err != nil {
+		return fmt.Errorf("could not fill enum %s: %v", v.Type().Name(), err)
+	}
+	// Windows rejects an enum16 value above 32767 read as unsigned, which is every negative value.
+	if i < 0 {
+		return fmt.Errorf("enum value %d is negative", i)
+	}
+	switch v.Kind() {
+	case reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if v.OverflowUint(uint64(i)) {
+			return fmt.Errorf("enum value %d overflows %s", i, v.Type())
+		}
+		v.SetUint(uint64(i))
+	case reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		if v.OverflowInt(int64(i)) {
+			return fmt.Errorf("enum value %d overflows %s", i, v.Type())
+		}
+		v.SetInt(int64(i))
+	default:
+		return fmt.Errorf("the enum tag requires an integer field but %s is a %s", v.Type(), v.Kind())
+	}
+	return nil
+}
+
 func (dec *Decoder) ensureAlignment(n int) {
-	p := dec.size - dec.r.Buffered()
-	if s := p % n; s != 0 {
-		dec.r.Discard(n - s)
+	if s := dec.pos % n; s != 0 {
+		// A failure here surfaces on the read that follows.
+		_ = dec.discard(n - s)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"strconv"
 )
 
-// intFromTag returns an int that is a value in a struct tag key/value pair
 func intFromTag(tag reflect.StructTag, key string) (int, error) {
 	ndrTag := parseTags(tag)
 	d := 1
@@ -21,7 +20,6 @@ func intFromTag(tag reflect.StructTag, key string) (int, error) {
 	return d, nil
 }
 
-// parseDimensions returns the a slice of the size of each dimension and type of the member at the deepest level.
 func parseDimensions(v reflect.Value) (l []int, tb reflect.Type) {
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
@@ -45,7 +43,6 @@ func parseDimensions(v reflect.Value) (l []int, tb reflect.Type) {
 	return
 }
 
-// sliceDimensions returns the count of dimensions a slice has.
 func sliceDimensions(t reflect.Type) (d int, tb reflect.Type) {
 	if t.Kind() == reflect.Ptr {
 		t = t.Elem()
@@ -61,8 +58,6 @@ func sliceDimensions(t reflect.Type) (d int, tb reflect.Type) {
 	return
 }
 
-// makeSubSlices is a deep recursive creation/initialisation of multi-dimensional slices.
-// Takes the reflect.Value of the 1st dimension and a slice of the lengths of the sub dimensions
 func makeSubSlices(v reflect.Value, l []int) {
 	ty := v.Type().Elem()
 	if ty.Kind() != reflect.Slice {
@@ -79,37 +74,53 @@ func makeSubSlices(v reflect.Value, l []int) {
 	return
 }
 
-// multiDimensionalIndexPermutations returns all the permutations of the indexes of a multi-dimensional slice.
-// The input is a slice of integers that indicates the max size/length of each dimension
-func multiDimensionalIndexPermutations(l []int) (ps [][]int) {
-	z := make([]int, len(l), len(l)) // The zeros permutation
-	ps = append(ps, z)
-	// for each dimension, in reverse
-	for i := len(l) - 1; i >= 0; i-- {
-		ws := make([][]int, len(ps))
-		copy(ws, ps)
-		//create a permutation for each of the iterations of the current dimension
-		for j := 1; j <= l[i]-1; j++ {
-			// For each existing permutation
-			for _, p := range ws {
-				np := make([]int, len(p), len(p))
-				copy(np, p)
-				np[i] = j
-				ps = append(ps, np)
-			}
+func forEachIndex(base, l []int, f func(p []int) error) error {
+	for _, n := range l {
+		if n < 1 {
+			return nil
 		}
 	}
-	return
+	if base == nil {
+		base = make([]int, len(l))
+	}
+	// Elements are visited in row-major order, the last dimension varying fastest, which is the order NDR
+	// transmits them. One index is reused between calls so that no memory is allocated per element.
+	p := make([]int, len(l))
+	copy(p, base)
+	for {
+		if err := f(p); err != nil {
+			return err
+		}
+		i := len(l) - 1
+		for ; i >= 0; i-- {
+			p[i]++
+			if p[i] < base[i]+l[i] {
+				break
+			}
+			p[i] = base[i]
+		}
+		if i < 0 {
+			return nil
+		}
+	}
 }
 
-// precedingMax reads off the next conformant max value
-func (dec *Decoder) precedingMax() uint32 {
+func indexValue(v reflect.Value, p []int) reflect.Value {
+	for _, i := range p {
+		v = v.Index(i)
+	}
+	return v
+}
+
+func (dec *Decoder) precedingMax() (uint32, error) {
+	if len(dec.conformantMax) == 0 {
+		return 0, errors.New("no hoisted conformant max count available: this arrangement of conformant arrays is not supported")
+	}
 	m := dec.conformantMax[0]
 	dec.conformantMax = dec.conformantMax[1:]
-	return m
+	return m, nil
 }
 
-// fillFixedArray establishes if the fixed array is uni or multi dimensional and then fills it.
 func (dec *Decoder) fillFixedArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	l, t := parseDimensions(v)
 	if t.Kind() == reflect.String {
@@ -126,23 +137,15 @@ func (dec *Decoder) fillFixedArray(v reflect.Value, tag reflect.StructTag, def *
 		return nil
 	}
 	// Fixed array is multidimensional
-	ps := multiDimensionalIndexPermutations(l[:len(l)-1])
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
+	return forEachIndex(nil, l[:len(l)-1], func(p []int) error {
 		// fill with the last dimension array
-		err := dec.fillUniDimensionalFixedArray(a, tag, def)
-		if err != nil {
+		if err := dec.fillUniDimensionalFixedArray(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill dimension %v of multi-dimensional fixed array: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
-// readUniDimensionalFixedArray reads an array (not slice) from the byte stream.
 func (dec *Decoder) fillUniDimensionalFixedArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	for i := 0; i < v.Len(); i++ {
 		err := dec.fill(v.Index(i), tag, def)
@@ -153,7 +156,6 @@ func (dec *Decoder) fillUniDimensionalFixedArray(v reflect.Value, tag reflect.St
 	return nil
 }
 
-// fillConformantArray establishes if the conformant array is uni or multi dimensional and then fills the slice.
 func (dec *Decoder) fillConformantArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	d, _ := sliceDimensions(v.Type())
 	if d > 1 {
@@ -170,10 +172,17 @@ func (dec *Decoder) fillConformantArray(v reflect.Value, tag reflect.StructTag, 
 	return nil
 }
 
-// fillUniDimensionalConformantArray fills the uni-dimensional slice value.
 func (dec *Decoder) fillUniDimensionalConformantArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	m := dec.precedingMax()
+	m, err := dec.precedingMax()
+	if err != nil {
+		return err
+	}
 	n := int(m)
+	if err := dec.checkAllocatable(v.Type().Elem(), n); err != nil {
+		return err
+	}
+	// Array data is aligned to its element type even when no element follows, as MIDL generated stubs do.
+	dec.ensureAlignment(typeAlignment(v.Type().Elem(), tag))
 	a := reflect.MakeSlice(v.Type(), n, n)
 	for i := 0; i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -185,14 +194,20 @@ func (dec *Decoder) fillUniDimensionalConformantArray(v reflect.Value, tag refle
 	return nil
 }
 
-// fillMultiDimensionalConformantArray fills the multi-dimensional slice value provided from conformant array data.
-// The number of dimensions must be specified. This must be less than or equal to the dimensions in the slice for this
-// method not to panic.
 func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, tag reflect.StructTag, def *[]deferedPtr) error {
 	// Read the max size of each dimensions from the ndr stream
 	l := make([]int, d, d)
 	for i := range l {
-		l[i] = int(dec.precedingMax())
+		m, err := dec.precedingMax()
+		if err != nil {
+			return err
+		}
+		l[i] = int(m)
+	}
+	// Every element of a conformant array is transmitted, so the octets
+	// remaining are what justify them.
+	if err := dec.checkDimensions(l, dec.remaining()); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
@@ -202,22 +217,16 @@ func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, 
 	makeSubSlices(v, l[1:])
 
 	// Get all permutations of the indexes and go through each and fill
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	_, et := sliceDimensions(v.Type())
+	dec.ensureAlignment(typeAlignment(et, tag))
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
-// fillVaryingArray establishes if the varying array is uni or multi dimensional and then fills the slice.
 func (dec *Decoder) fillVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	d, t := sliceDimensions(v.Type())
 	if d > 1 {
@@ -234,7 +243,6 @@ func (dec *Decoder) fillVaryingArray(v reflect.Value, tag reflect.StructTag, def
 	return nil
 }
 
-// fillUniDimensionalVaryingArray fills the uni-dimensional slice value.
 func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	o, err := dec.readUint32()
 	if err != nil {
@@ -246,7 +254,21 @@ func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.
 	}
 	t := v.Type()
 	// Total size of the array is the offset in the index being passed plus the actual count of elements being passed.
-	n := int(s + o)
+	// Both come from the stream, so the sum is computed in 64 bits: added as
+	// uint32 it could wrap to a small length and silently truncate the array.
+	n, err := dec.arrayBound(o, s)
+	if err != nil {
+		return err
+	}
+	// Only the actual count is transmitted; the offset region is allocated but
+	// never read, so the two are bounded separately.
+	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t.Elem(), n, int(s)); err != nil {
+		return err
+	}
+	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
 	a := reflect.MakeSlice(t, n, n)
 	// Populate the array starting at the offset specified
 	for i := int(o); i < n; i++ {
@@ -259,24 +281,33 @@ func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.
 	return nil
 }
 
-// fillMultiDimensionalVaryingArray fills the multi-dimensional slice value provided from varying array data.
-// The number of dimensions must be specified. This must be less than or equal to the dimensions in the slice for this
-// method not to panic.
 func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.Type, d int, tag reflect.StructTag, def *[]deferedPtr) error {
 	// Read the offset and actual count of each dimensions from the ndr stream
 	o := make([]int, d, d)
 	l := make([]int, d, d)
+	c := make([]int, d, d)
 	for i := range l {
 		off, err := dec.readUint32()
 		if err != nil {
 			return fmt.Errorf("could not read offset of dimension %d: %v", i+1, err)
 		}
-		o[i] = int(off)
 		s, err := dec.readUint32()
 		if err != nil {
 			return fmt.Errorf("could not read size of dimension %d: %v", i+1, err)
 		}
-		l[i] = int(s) + int(off)
+		if l[i], err = dec.arrayBound(off, s); err != nil {
+			return fmt.Errorf("dimension %d: %v", i+1, err)
+		}
+		o[i] = int(off)
+		c[i] = int(s)
+	}
+	// Offsets name elements allocated without appearing in the stream, so the
+	// whole object buffer is the budget.
+	if err := dec.checkDimensions(l, dec.objectBufferLen()); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t, product(l), product(c)); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
@@ -286,31 +317,16 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 	makeSubSlices(v, l[1:])
 
 	// Get all permutations of the indexes and go through each and fill
-	ps := multiDimensionalIndexPermutations(l)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		var os bool // should this permutation be skipped due to the offset of any of the dimensions?
-		for i, j := range p {
-			if j < o[i] {
-				os = true
-				break
-			}
-			a = a.Index(j)
-		}
-		if os {
-			// This permutation should be skipped as it is less than the offset for one of the dimensions.
-			continue
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	dec.ensureAlignment(typeAlignment(t, tag))
+	// Only the elements from each dimension's offset for its actual count are transmitted.
+	return forEachIndex(o, c, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
 
-// fillConformantVaryingArray establishes if the varying array is uni or multi dimensional and then fills the slice.
 func (dec *Decoder) fillConformantVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
 	d, t := sliceDimensions(v.Type())
 	if d > 1 {
@@ -327,9 +343,11 @@ func (dec *Decoder) fillConformantVaryingArray(v reflect.Value, tag reflect.Stru
 	return nil
 }
 
-// fillUniDimensionalConformantVaryingArray fills the uni-dimensional slice value.
 func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	m := dec.precedingMax()
+	m, err := dec.precedingMax()
+	if err != nil {
+		return err
+	}
 	o, err := dec.readUint32()
 	if err != nil {
 		return fmt.Errorf("could not read offset of uni-dimensional conformant varying array: %v", err)
@@ -338,11 +356,25 @@ func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, ta
 	if err != nil {
 		return fmt.Errorf("could not establish actual count of uni-dimensional conformant varying array: %v", err)
 	}
-	if m < o+s {
+	if uint64(m) < uint64(o)+uint64(s) {
 		return errors.New("max count is less than the offset plus actual count")
 	}
 	t := v.Type()
-	n := int(s)
+	// The offset is the index of the first element transmitted and the actual
+	// count is how many follow it, so the array spans offset+count and exactly
+	// count elements are read. Sizing it to the count alone would read count
+	// minus offset elements and leave the rest of the array data in the stream.
+	n, err := dec.arrayBound(o, s)
+	if err != nil {
+		return err
+	}
+	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t.Elem(), n, int(s)); err != nil {
+		return err
+	}
+	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
 	a := reflect.MakeSlice(t, n, n)
 	for i := int(o); i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -354,31 +386,45 @@ func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, ta
 	return nil
 }
 
-// fillMultiDimensionalConformantVaryingArray fills the multi-dimensional slice value provided from conformant varying array data.
-// The number of dimensions must be specified. This must be less than or equal to the dimensions in the slice for this
-// method not to panic.
 func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, t reflect.Type, d int, tag reflect.StructTag, def *[]deferedPtr) error {
 	// Read the offset and actual count of each dimensions from the ndr stream
 	m := make([]int, d, d)
 	for i := range m {
-		m[i] = int(dec.precedingMax())
+		n, err := dec.precedingMax()
+		if err != nil {
+			return err
+		}
+		m[i] = int(n)
 	}
 	o := make([]int, d, d)
 	l := make([]int, d, d)
+	c := make([]int, d, d)
 	for i := range l {
 		off, err := dec.readUint32()
 		if err != nil {
 			return fmt.Errorf("could not read offset of dimension %d: %v", i+1, err)
 		}
-		o[i] = int(off)
 		s, err := dec.readUint32()
 		if err != nil {
 			return fmt.Errorf("could not read actual count of dimension %d: %v", i+1, err)
 		}
-		if m[i] < int(s)+int(off) {
-			m[i] = int(s) + int(off)
+		c[i] = int(s)
+		// As above, elements run from the offset for actual-count entries.
+		sum, err := dec.arrayBound(off, s)
+		if err != nil {
+			return fmt.Errorf("dimension %d: %v", i+1, err)
 		}
-		l[i] = int(s)
+		if m[i] < sum {
+			return fmt.Errorf("dimension %d: max count %d is less than the offset plus actual count %d", i+1, m[i], sum)
+		}
+		o[i] = int(off)
+		l[i] = sum
+	}
+	if err := dec.checkDimensions(m, dec.objectBufferLen()); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t, product(m), product(c)); err != nil {
+		return err
 	}
 	// Initialise size of slices
 	//   Initialise the size of the 1st dimension
@@ -388,26 +434,12 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 	makeSubSlices(v, m[1:])
 
 	// Get all permutations of the indexes and go through each and fill
-	ps := multiDimensionalIndexPermutations(m)
-	for _, p := range ps {
-		// Get current multi-dimensional index to fill
-		a := v
-		var os bool // should this permutation be skipped due to the offset of any of the dimensions or max is higher than the actual count being passed
-		for i, j := range p {
-			if j < o[i] || j >= l[i] {
-				os = true
-				break
-			}
-			a = a.Index(j)
-		}
-		if os {
-			// This permutation should be skipped as it is less than the offset for one of the dimensions.
-			continue
-		}
-		err := dec.fill(a, tag, def)
-		if err != nil {
+	dec.ensureAlignment(typeAlignment(t, tag))
+	// Only the elements from each dimension's offset for its actual count are transmitted.
+	return forEachIndex(o, c, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of slice: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }

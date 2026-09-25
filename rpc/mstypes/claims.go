@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-krb5/x/internal/xpress"
 	"github.com/go-krb5/x/rpc/ndr"
-	"golang.org/x/net/http2/hpack"
 )
 
 // Compression format assigned numbers. https://docs.microsoft.com/en-us/openspecs/windows_protocols/ms-xca/a8b7cb0a-92a6-4187-a23b-5e14273b96f8
@@ -17,6 +17,8 @@ const (
 	CompressionFormatXPress     uint16 = 3 // plain LZ77
 	CompressionFormatXPressHuff uint16 = 4 // LZ77+Huffman - The Huffman variant of the XPRESS compression format uses LZ77-style dictionary compression combined with Huffman coding.
 )
+
+const maxUncompressedClaimsSetSize = 16 << 20
 
 // ClaimsSourceTypeAD https://msdn.microsoft.com/en-us/library/hh553809.aspx
 const ClaimsSourceTypeAD uint16 = 1
@@ -38,10 +40,17 @@ type ClaimsBlob struct {
 // EncodedBlob are the bytes of the encoded Claims
 type EncodedBlob []byte
 
-// Size returns the size of the bytes of the encoded Claims
+// Size returns the size of the bytes of the encoded Claims. It returns -1, which the NDR codec rejects as a size, when
+// the EncodedBlob is not within a ClaimsBlob.
 func (b EncodedBlob) Size(c interface{}) int {
-	cb := c.(ClaimsBlob)
-	return int(cb.Size)
+	switch cb := c.(type) {
+	case ClaimsBlob:
+		return int(cb.Size)
+	case *ClaimsBlob:
+		return int(cb.Size)
+	default:
+		return -1
+	}
 }
 
 // ClaimsSetMetadata implements https://msdn.microsoft.com/en-us/library/hh554073.aspx
@@ -72,14 +81,19 @@ func (m *ClaimsSetMetadata) ClaimsSet() (c ClaimsSet, err error) {
 		err = fmt.Errorf("ClaimsSet compressed, format XPress not currently supported: %s", s)
 		return
 	case CompressionFormatXPressHuff:
-		var b []byte
-		buff := bytes.NewBuffer(b)
-		_, e := hpack.HuffmanDecode(buff, m.ClaimsSetBytes)
-		if e != nil {
-			err = fmt.Errorf("error deflating: %v", e)
+		// The uncompressed size is taken from the PAC and sizes the output buffer, so it is bounded before decompressing.
+		if m.UncompressedClaimsSetSize > maxUncompressedClaimsSetSize {
+			err = fmt.Errorf("ClaimsSet uncompressed size %d exceeds the maximum of %d", m.UncompressedClaimsSetSize, maxUncompressedClaimsSetSize)
 			return
 		}
-		m.ClaimsSetBytes = buff.Bytes()
+		b, e := xpress.DecompressHuffman(m.ClaimsSetBytes, int(m.UncompressedClaimsSetSize))
+		if e != nil {
+			err = fmt.Errorf("error decompressing ClaimsSet: %v", e)
+			return
+		}
+		dec := ndr.NewDecoder(bytes.NewReader(b))
+		err = dec.Decode(&c)
+		return
 	}
 	dec := ndr.NewDecoder(bytes.NewReader(m.ClaimsSetBytes))
 	err = dec.Decode(&c)
@@ -104,7 +118,7 @@ type ClaimsArray struct {
 
 // ClaimEntry is a NDR union that implements https://msdn.microsoft.com/en-us/library/hh536374.aspx
 type ClaimEntry struct {
-	ID         string           `ndr:"pointer,conformant,varying"`
+	ID         string           `ndr:"pointer,conformant,varying,nullterminated"`
 	Type       uint16           `ndr:"unionTag"`
 	TypeInt64  ClaimTypeInt64   `ndr:"unionField"`
 	TypeUInt64 ClaimTypeUInt64  `ndr:"unionField"`
@@ -145,8 +159,18 @@ type ClaimTypeString struct {
 	Value      []LPWSTR `ndr:"pointer,conformant"`
 }
 
-// ClaimTypeBoolean is a claim of type bool
+// ClaimTypeBoolean is a claim of type bool. MS-ADTS 2.2.18.5 transmits each value as a ULONG64 that is 1 for TRUE
+// and 0 for FALSE.
 type ClaimTypeBoolean struct {
 	ValueCount uint32
-	Value      []bool `ndr:"pointer,conformant"`
+	Value      []uint64 `ndr:"pointer,conformant"`
+}
+
+// Bools returns the values of the claim, where any non-zero value is TRUE.
+func (c ClaimTypeBoolean) Bools() []bool {
+	b := make([]bool, len(c.Value))
+	for i, v := range c.Value {
+		b[i] = v != 0
+	}
+	return b
 }

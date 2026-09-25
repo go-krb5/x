@@ -52,6 +52,11 @@ func (dec *Decoder) readRawBytes(v reflect.Value, tag reflect.StructTag) error {
 	if err != nil {
 		return fmt.Errorf("size not valid: %v", err)
 	}
+	// The size is derived from values in the stream, so it must be justified by the octets remaining before it is
+	// allocated.
+	if size < 0 || size > dec.remaining() {
+		return Errorf("raw bytes size %d exceeds the %d octets remaining in the object buffer", size, dec.remaining())
+	}
 	b, err := dec.readBytes(size)
 	if err != nil {
 		return err
