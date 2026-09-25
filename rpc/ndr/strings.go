@@ -104,14 +104,10 @@ func (dec *Decoder) fillStringElements(v reflect.Value, t reflect.Type, l []int,
 	v.Set(reflect.MakeSlice(v.Type(), l[0], l[0]))
 	makeSubSlices(v, l[1:])
 	dec.ensureAlignment(typeAlignment(t, tag))
-	for _, p := range multiDimensionalIndexPermutations(l) {
-		a := v
-		for _, i := range p {
-			a = a.Index(i)
-		}
-		if err := dec.fill(a, tag, def); err != nil {
+	return forEachIndex(nil, l, func(p []int) error {
+		if err := dec.fill(indexValue(v, p), tag, def); err != nil {
 			return fmt.Errorf("could not fill index %v of string array: %v", p, err)
 		}
-	}
-	return nil
+		return nil
+	})
 }
