@@ -102,7 +102,6 @@ func (enc *Encoder) Encode(s any) error {
 		if err := enc.writeCommonHeader(); err != nil {
 			return err
 		}
-		enc.started = true
 	}
 	// The conformant max counts are hoisted per top-level type. Referent ids
 	// are not reset: they must stay distinct across the whole stream.
@@ -140,6 +139,11 @@ func (enc *Encoder) Encode(s any) error {
 
 	n, err := enc.w.Write(out)
 	enc.base += n
+	// The common header is only part of the stream once it has been written,
+	// so a type that fails to encode leaves it to be written by the next.
+	if n > 0 {
+		enc.started = true
+	}
 
 	return err
 }

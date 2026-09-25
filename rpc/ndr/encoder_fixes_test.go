@@ -146,6 +146,17 @@ func TestEncodeRawBytesLongerThanSizeErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "does not equal size")
 }
 
+func TestEncodeFailureKeepsCommonHeaderForNextType(t *testing.T) {
+	var buf bytes.Buffer
+	enc := NewEncoder(&buf)
+	require.Error(t, enc.Encode(&structWithMultiDimConformant{A: [][]uint32{{1}, {1, 2}}}))
+	require.NoError(t, enc.Encode(&structWithSingleUint32{A: 7}))
+
+	var out structWithSingleUint32
+	require.NoError(t, NewDecoder(bytes.NewReader(buf.Bytes())).Decode(&out))
+	assert.Equal(t, uint32(7), out.A)
+}
+
 func TestEncodeRejectsEndiannessChangeWithinStream(t *testing.T) {
 	var buf bytes.Buffer
 	enc := NewEncoder(&buf)
