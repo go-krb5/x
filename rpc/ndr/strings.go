@@ -51,10 +51,9 @@ func (dec *Decoder) readConformantVaryingString(def *[]deferedPtr) (string, erro
 }
 
 func (dec *Decoder) readStringsArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	d, _ := sliceDimensions(v.Type())
+	d, t := sliceDimensions(v.Type())
 	ndrTag := parseTags(tag)
 	var m []int
-	//var ms int
 	if ndrTag.HasValue(TagConformant) {
 		for i := 0; i < d; i++ {
 			n, err := dec.precedingMax()
@@ -63,16 +62,44 @@ func (dec *Decoder) readStringsArray(v reflect.Value, tag reflect.StructTag, def
 			}
 			m = append(m, int(n))
 		}
-		//common max size
+		// The common max count of the strings; each string carries its own offset and actual count.
 		if _, err := dec.precedingMax(); err != nil {
 			return err
 		}
-		//ms = int(n)
 	}
-	tag = reflect.StructTag(subStringArrayTag)
-	err := dec.fillVaryingArray(v, tag, def)
+	sub := reflect.StructTag(subStringArrayTag)
+	var err error
+	if ndrTag.HasValue(TagConformant) && !ndrTag.HasValue(TagVarying) {
+		// C706 14.3.5: a non-varying array of strings carries no offsets or actual counts of its own.
+		err = dec.fillStringElements(v, t, m, sub, def)
+	} else {
+		err = dec.fillVaryingArray(v, sub, def)
+	}
 	if err != nil {
 		return fmt.Errorf("could not read string array: %v", err)
+	}
+	return nil
+}
+
+func (dec *Decoder) fillStringElements(v reflect.Value, t reflect.Type, l []int, tag reflect.StructTag, def *[]deferedPtr) error {
+	if len(l) == 1 {
+		if err := dec.checkAllocatable(t, l[0]); err != nil {
+			return err
+		}
+	} else if err := dec.checkDimensions(l, dec.remaining()); err != nil {
+		return err
+	}
+	v.Set(reflect.MakeSlice(v.Type(), l[0], l[0]))
+	makeSubSlices(v, l[1:])
+	dec.ensureAlignment(typeAlignment(t, tag))
+	for _, p := range multiDimensionalIndexPermutations(l) {
+		a := v
+		for _, i := range p {
+			a = a.Index(i)
+		}
+		if err := dec.fill(a, tag, def); err != nil {
+			return fmt.Errorf("could not fill index %v of string array: %v", p, err)
+		}
 	}
 	return nil
 }

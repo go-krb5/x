@@ -48,7 +48,7 @@ func (enc *Encoder) writeConformantVaryingString(s string, nullTerminated bool) 
 }
 
 func (enc *Encoder) writeStringsArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
-	d, _ := sliceDimensions(v.Type())
+	d, t := sliceDimensions(v.Type())
 	ndrTag := parseTags(tag)
 	if ndrTag.HasValue(TagConformant) {
 		// The per-dimension max counts and the common string max were hoisted
@@ -60,6 +60,20 @@ func (enc *Encoder) writeStringsArray(v reflect.Value, tag reflect.StructTag, de
 		}
 	}
 	tag = subStringTag(ndrTag)
+	if ndrTag.HasValue(TagConformant) && !ndrTag.HasValue(TagVarying) {
+		// C706 14.3.5: a non-varying array of strings carries no offsets or actual counts of its own.
+		enc.ensureAlignment(typeAlignment(t, tag))
+		for _, p := range multiDimensionalIndexPermutations(sliceDimLengths(v, d)) {
+			a := v
+			for _, i := range p {
+				a = a.Index(i)
+			}
+			if err := enc.fill(a, tag, def); err != nil {
+				return fmt.Errorf("could not write index %v of string array: %v", p, err)
+			}
+		}
+		return nil
+	}
 	if err := enc.writeVaryingArray(v, tag, def); err != nil {
 		return fmt.Errorf("could not write string array: %v", err)
 	}
