@@ -2,6 +2,7 @@ package ndr
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"runtime"
 	"testing"
@@ -187,6 +188,37 @@ func TestDecodeMissingConformantMaxErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "conformant max count")
 }
 
+func TestDecodeBoundsVaryingOffsetRegionByMemory(t *testing.T) {
+	const objLen = 1 << 20
+	b := varyingStream(objLen, objLen-100, 1)
+
+	var got structWithWideVaryingElements
+	var err error
+	alloc := allocatedBy(t, func() {
+		err = NewDecoder(bytes.NewReader(b)).Decode(&got)
+	})
+	assert.Error(t, err)
+	assert.Less(t, alloc, uint64(8<<20))
+}
+
+func TestDecodeAcceptsVaryingOffsetWithinMemoryBudget(t *testing.T) {
+	b := varyingStream(1<<10, 4, 1)
+
+	var got structWithWideVaryingElements
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+	assert.Len(t, got.A, 5)
+}
+
+func varyingStream(objLen, offset, count uint32) []byte {
+	b := []byte{0x01, 0x10, 0x08, 0x00, 0xcc, 0xcc, 0xcc, 0xcc}
+	b = binary.LittleEndian.AppendUint32(b, objLen)
+	b = binary.LittleEndian.AppendUint32(b, 0)
+	body := binary.LittleEndian.AppendUint32(nil, 0x00020000)
+	body = binary.LittleEndian.AppendUint32(body, offset)
+	body = binary.LittleEndian.AppendUint32(body, count)
+	return append(b, append(body, make([]byte, int(objLen)-len(body))...)...)
+}
+
 func allocatedBy(t *testing.T, f func()) uint64 {
 	t.Helper()
 	var before, after runtime.MemStats
@@ -198,6 +230,10 @@ func allocatedBy(t *testing.T, f func()) uint64 {
 }
 
 const allocationBudget = 1 << 20
+
+type structWithWideVaryingElements struct {
+	A [][64]byte `ndr:"varying"`
+}
 
 type unbackedRawBytes []byte
 

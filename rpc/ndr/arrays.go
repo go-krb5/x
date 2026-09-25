@@ -270,7 +270,7 @@ func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.
 	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
 		return err
 	}
-	if err := dec.checkArrayLength(n); err != nil {
+	if err := dec.checkUntransmitted(t.Elem(), n, int(s)); err != nil {
 		return err
 	}
 	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
@@ -290,6 +290,7 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 	// Read the offset and actual count of each dimensions from the ndr stream
 	o := make([]int, d, d)
 	l := make([]int, d, d)
+	c := make([]int, d, d)
 	for i := range l {
 		off, err := dec.readUint32()
 		if err != nil {
@@ -303,10 +304,14 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 			return fmt.Errorf("dimension %d: %v", i+1, err)
 		}
 		o[i] = int(off)
+		c[i] = int(s)
 	}
 	// Offsets name elements allocated without appearing in the stream, so the
 	// whole object buffer is the budget.
 	if err := dec.checkDimensions(l, dec.objectBufferLen()); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t, product(l), product(c)); err != nil {
 		return err
 	}
 	// Initialise size of slices
@@ -386,7 +391,7 @@ func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, ta
 	if err := dec.checkAllocatable(t.Elem(), int(s)); err != nil {
 		return err
 	}
-	if err := dec.checkArrayLength(n); err != nil {
+	if err := dec.checkUntransmitted(t.Elem(), n, int(s)); err != nil {
 		return err
 	}
 	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
@@ -413,6 +418,7 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 	}
 	o := make([]int, d, d)
 	l := make([]int, d, d)
+	c := make([]int, d, d)
 	for i := range l {
 		off, err := dec.readUint32()
 		if err != nil {
@@ -422,6 +428,7 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 		if err != nil {
 			return fmt.Errorf("could not read actual count of dimension %d: %v", i+1, err)
 		}
+		c[i] = int(s)
 		// As above, elements run from the offset for actual-count entries.
 		sum, err := dec.arrayBound(off, s)
 		if err != nil {
@@ -434,6 +441,9 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 		l[i] = sum
 	}
 	if err := dec.checkDimensions(m, dec.objectBufferLen()); err != nil {
+		return err
+	}
+	if err := dec.checkUntransmitted(t, product(m), product(c)); err != nil {
 		return err
 	}
 	// Initialise size of slices
