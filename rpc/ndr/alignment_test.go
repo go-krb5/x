@@ -95,6 +95,20 @@ func TestTypeAlignment(t *testing.T) {
 	}
 }
 
+func TestAlignEmptyArrayToElementType(t *testing.T) {
+	in := alignEmptyArrayHolder{C: 1, A: []int64{}, B: "ab"}
+	b, err := Marshal(&in)
+	require.NoError(t, err)
+
+	assert.Equal(t, "00000000", hex.EncodeToString(b[32:36]))
+	assert.Equal(t, "00000000", hex.EncodeToString(b[36:40]))
+	assert.Equal(t, "02000000", hex.EncodeToString(b[40:44]))
+
+	var got alignEmptyArrayHolder
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+	assert.Equal(t, in, got)
+}
+
 const bodyStart = 20
 
 type alignInner struct {
@@ -138,4 +152,10 @@ func (u alignUnion) SwitchFunc(tag any) string {
 type alignUnionHolder struct {
 	X uint8
 	U alignUnion
+}
+
+type alignEmptyArrayHolder struct {
+	C uint32
+	A []int64 `ndr:"pointer,conformant"`
+	B string  `ndr:"pointer,conformant,varying"`
 }

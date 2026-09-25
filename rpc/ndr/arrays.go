@@ -179,6 +179,8 @@ func (dec *Decoder) fillUniDimensionalConformantArray(v reflect.Value, tag refle
 	if err := dec.checkAllocatable(v.Type().Elem(), n); err != nil {
 		return err
 	}
+	// Array data is aligned to its element type even when no element follows, as MIDL generated stubs do.
+	dec.ensureAlignment(typeAlignment(v.Type().Elem(), tag))
 	a := reflect.MakeSlice(v.Type(), n, n)
 	for i := 0; i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -213,6 +215,8 @@ func (dec *Decoder) fillMultiDimensionalConformantArray(v reflect.Value, d int, 
 	makeSubSlices(v, l[1:])
 
 	// Get all permutations of the indexes and go through each and fill
+	_, et := sliceDimensions(v.Type())
+	dec.ensureAlignment(typeAlignment(et, tag))
 	ps := multiDimensionalIndexPermutations(l)
 	for _, p := range ps {
 		// Get current multi-dimensional index to fill
@@ -269,6 +273,7 @@ func (dec *Decoder) fillUniDimensionalVaryingArray(v reflect.Value, tag reflect.
 	if err := dec.checkArrayLength(n); err != nil {
 		return err
 	}
+	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
 	a := reflect.MakeSlice(t, n, n)
 	// Populate the array starting at the offset specified
 	for i := int(o); i < n; i++ {
@@ -312,6 +317,7 @@ func (dec *Decoder) fillMultiDimensionalVaryingArray(v reflect.Value, t reflect.
 	makeSubSlices(v, l[1:])
 
 	// Get all permutations of the indexes and go through each and fill
+	dec.ensureAlignment(typeAlignment(t, tag))
 	ps := multiDimensionalIndexPermutations(l)
 	for _, p := range ps {
 		// Get current multi-dimensional index to fill
@@ -383,6 +389,7 @@ func (dec *Decoder) fillUniDimensionalConformantVaryingArray(v reflect.Value, ta
 	if err := dec.checkArrayLength(n); err != nil {
 		return err
 	}
+	dec.ensureAlignment(typeAlignment(t.Elem(), tag))
 	a := reflect.MakeSlice(t, n, n)
 	for i := int(o); i < n; i++ {
 		err := dec.fill(a.Index(i), tag, def)
@@ -437,6 +444,7 @@ func (dec *Decoder) fillMultiDimensionalConformantVaryingArray(v reflect.Value, 
 	makeSubSlices(v, m[1:])
 
 	// Get all permutations of the indexes and go through each and fill
+	dec.ensureAlignment(typeAlignment(t, tag))
 	ps := multiDimensionalIndexPermutations(m)
 	for _, p := range ps {
 		// Get current multi-dimensional index to fill
