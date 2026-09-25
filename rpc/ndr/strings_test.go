@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_uint16SliceToString(t *testing.T) {
@@ -199,6 +200,20 @@ func Test_readFixedStringMultiDimensionalArray(t *testing.T) {
 	assert.Equal(t, ar, a.A, "fixed multi-dimensional string array not as expected")
 }
 
+func TestConformantStringArrayHasNoArrayVariance(t *testing.T) {
+	body := "02000000" + "03000000" + "00000000" + "02000000" + "61000000" + "00000000" + "03000000" + "620063000000"
+	b, err := hex.DecodeString("01100800cccccccc" + "28000000" + "00000000" + "00000200" + body + "0000")
+	require.NoError(t, err)
+
+	var got structWithConformantStringArray
+	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+	assert.Equal(t, []string{"a", "bc"}, got.A)
+
+	enc, err := Marshal(&got)
+	require.NoError(t, err)
+	assert.Equal(t, hex.EncodeToString(b), hex.EncodeToString(enc))
+}
+
 const (
 	TestStr         = "hello world!"
 	TestStrUTF16Hex = "680065006c006c006f00200077006f0072006c00640021000000"
@@ -234,4 +249,8 @@ type TestStructWithFixedStringUniArray struct {
 
 type TestStructWithFixedStringMultiArray struct {
 	A [2][3][2]string `ndr:"nullterminated"`
+}
+
+type structWithConformantStringArray struct {
+	A []string `ndr:"conformant,nullterminated"`
 }
