@@ -15,7 +15,13 @@ We need to combine these two into one 64bit integer.
 This gives the number of 100 nano second period from January 1, 1601, Coordinated Universal Time (UTC)
 */
 
-const unixEpochDiff = 116444736000000000
+const (
+	unixEpochDiff = 116444736000000000
+
+	unixEpochDiffSeconds = unixEpochDiff / periodsPerSecond
+
+	periodsPerSecond = 10000000
+)
 
 // FileTime implements the Microsoft FILETIME type https://msdn.microsoft.com/en-us/library/cc230324.aspx
 type FileTime struct {
@@ -25,8 +31,9 @@ type FileTime struct {
 
 // Time return a golang Time type from the FileTime
 func (ft FileTime) Time() time.Time {
-	ns := (ft.MSEpoch() - unixEpochDiff) * 100
-	return time.Unix(0, int64(ns)).UTC()
+	// Seconds and nanoseconds are converted separately, as nanoseconds since the Unix epoch overflow an int64 after 2262.
+	p := uint64(ft.HighDateTime)<<32 | uint64(ft.LowDateTime)
+	return time.Unix(int64(p/periodsPerSecond)-unixEpochDiffSeconds, int64(p%periodsPerSecond)*100).UTC()
 }
 
 // MSEpoch returns the FileTime as a Microsoft epoch, the number of 100 nano second periods elapsed from January 1, 1601 UTC.
@@ -41,8 +48,8 @@ func (ft FileTime) Unix() int64 {
 
 // GetFileTime returns a FileTime type from the provided Golang Time type.
 func GetFileTime(t time.Time) FileTime {
-	ns := t.UnixNano()
-	fp := (ns / 100) + unixEpochDiff
+	// Nanoseconds since the Unix epoch are not used, as they are undefined outside the years 1678 to 2262.
+	fp := (t.Unix()+unixEpochDiffSeconds)*periodsPerSecond + int64(t.Nanosecond()/100)
 	hd := fp >> 32
 	ld := fp - (hd << 32)
 	return FileTime{
