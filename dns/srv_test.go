@@ -89,3 +89,10 @@ func TestWeightedOrderDoesNotReorderInput(t *testing.T) {
 
 	assert.Equal(t, want, srvs)
 }
+
+func TestOrderSRVServiceNotAvailable(t *testing.T) {
+	count, orderedSRV := orderSRV([]*net.SRV{{Target: ".", Port: 0, Priority: 0, Weight: 0}})
+
+	assert.Equal(t, 0, count)
+	assert.Empty(t, orderedSRV)
+}
