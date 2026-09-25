@@ -156,19 +156,17 @@ func roundUpToMultiple(n, m int) int {
 }
 
 func (enc *Encoder) process(s any, tag reflect.StructTag) error {
-	// A structure's alignment gap precedes its whole representation, which
-	// begins with the conformant max counts hoisted to its start, not with its
-	// first field. Align here and write the fields directly below so that fill
-	// does not insert a second gap after the max counts.
+	// Emit the conformant max counts that NDR hoists to the beginning of the
+	// structure, then the structure's own alignment gap, as MIDL generated stubs
+	// do. Align here and write the fields directly below so that fill does not
+	// align again. http://pubs.opengroup.org/onlinepubs/9629399/chap14.htm#tagfcjh_37
 	v := getReflectValue(s)
 	structure := v.Kind() == reflect.Struct
-	if structure {
-		enc.ensureAlignment(typeAlignment(v.Type(), tag))
-	}
-	// Emit the conformant max counts that NDR hoists to the beginning of the
-	// structure. http://pubs.opengroup.org/onlinepubs/9629399/chap14.htm#tagfcjh_37
 	if err := enc.scanConformantArrays(s, tag); err != nil {
 		return err
+	}
+	if structure {
+		enc.ensureAlignment(typeAlignment(v.Type(), tag))
 	}
 	// Recursively write the struct fields, collecting any deferred referents.
 	var localDef []deferedPtr

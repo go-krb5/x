@@ -136,20 +136,20 @@ func (dec *Decoder) Decode(s any) error {
 }
 
 func (dec *Decoder) process(s any, tag reflect.StructTag) error {
-	// A structure's alignment gap precedes its whole representation, which
-	// begins with the conformant max counts hoisted to its start, not with its
-	// first field. Align here and fill the fields directly below so that fill
-	// does not consume a second gap after the max counts.
+	// The conformant max counts hoisted to the beginning of a structure come
+	// first, each aligned as an unsigned long, and the structure's own alignment
+	// gap follows them. MIDL generated stubs marshal the conformance before
+	// aligning the structure, so this is the layout Windows emits. Align here
+	// and fill the fields directly below so that fill does not align again.
+	// http://pubs.opengroup.org/onlinepubs/9629399/chap14.htm#tagfcjh_37
 	v := getReflectValue(s)
 	structure := v.Kind() == reflect.Struct
-	if structure {
-		dec.ensureAlignment(typeAlignment(v.Type(), tag))
-	}
-	// Scan for conformant fields as their max counts are moved to the beginning
-	// http://pubs.opengroup.org/onlinepubs/9629399/chap14.htm#tagfcjh_37
 	err := dec.scanConformantArrays(s, tag)
 	if err != nil {
 		return err
+	}
+	if structure {
+		dec.ensureAlignment(typeAlignment(v.Type(), tag))
 	}
 	// Recursively fill the struct fields
 	var localDef []deferedPtr

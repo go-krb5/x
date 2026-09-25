@@ -26,27 +26,24 @@ func TestAlignStructArrayElements(t *testing.T) {
 	b, err := Marshal(&alignArrayHolder{P: 0x11223344, A: []alignElem{{A: 1, B: 2}, {A: 3, B: 4}}})
 	require.NoError(t, err)
 
-	assert.Equal(t, "00000000", hex.EncodeToString(b[bodyStart:bodyStart+4]),
-		"an 8-aligned top-level struct must be padded before its hoisted max count")
-	assert.Equal(t, "02000000", hex.EncodeToString(b[24:28]), "max count")
-	assert.Equal(t, "44332211", hex.EncodeToString(b[28:32]), "P")
-	assert.Equal(t, byte(1), b[32], "first element must start on an 8-octet boundary")
-	assert.Equal(t, "0200000000000000", hex.EncodeToString(b[40:48]), "first element B")
-	assert.Equal(t, byte(3), b[48], "second element must start on an 8-octet boundary")
+	assert.Equal(t, "02000000", hex.EncodeToString(b[bodyStart:bodyStart+4]))
+	assert.Equal(t, "44332211", hex.EncodeToString(b[24:28]))
+	assert.Equal(t, byte(1), b[32])
+	assert.Equal(t, "0200000000000000", hex.EncodeToString(b[40:48]))
+	assert.Equal(t, byte(3), b[48])
 
 	var got alignArrayHolder
 	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
 	assert.Equal(t, []alignElem{{A: 1, B: 2}, {A: 3, B: 4}}, got.A)
 }
 
-func TestAlignGapPrecedesHoistedMaxCounts(t *testing.T) {
+func TestAlignHoistedMaxCountsPrecedeGap(t *testing.T) {
 	b, err := Marshal(&alignHoistHolder{B: 0x7f, A: []uint64{9}})
 	require.NoError(t, err)
 
-	assert.Equal(t, "00000000", hex.EncodeToString(b[bodyStart:bodyStart+4]), "gap before max count")
-	assert.Equal(t, "01000000", hex.EncodeToString(b[24:28]), "max count immediately after the gap")
-	assert.Equal(t, byte(0x7f), b[28], "B must follow the max count with no further gap")
-	assert.Equal(t, "0900000000000000", hex.EncodeToString(b[32:40]), "uint64 element")
+	assert.Equal(t, "01000000", hex.EncodeToString(b[bodyStart:bodyStart+4]))
+	assert.Equal(t, byte(0x7f), b[24])
+	assert.Equal(t, "0900000000000000", hex.EncodeToString(b[32:40]))
 
 	var got alignHoistHolder
 	require.NoError(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
