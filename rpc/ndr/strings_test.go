@@ -214,6 +214,22 @@ func TestConformantStringArrayHasNoArrayVariance(t *testing.T) {
 	assert.Equal(t, hex.EncodeToString(b), hex.EncodeToString(enc))
 }
 
+func TestDecodeRejectsStringOffset(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "02000000" + "02000000" + "61006200")
+	require.NoError(t, err)
+
+	var got TestStructWithVaryingString
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
+func TestDecodeRejectsStringCountOverMax(t *testing.T) {
+	b, err := hex.DecodeString(TestHeader + "01000000" + "00000000" + "02000000" + "61006200")
+	require.NoError(t, err)
+
+	var got TestStructWithConformantVaryingString
+	assert.Error(t, NewDecoder(bytes.NewReader(b)).Decode(&got))
+}
+
 const (
 	TestStr         = "hello world!"
 	TestStrUTF16Hex = "680065006c006c006f00200077006f0072006c00640021000000"

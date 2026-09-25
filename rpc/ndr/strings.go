@@ -26,28 +26,40 @@ func uint16SliceToString(a []uint16) string {
 	return string(utf16.Decode(a))
 }
 
-func (dec *Decoder) readVaryingString(def *[]deferedPtr) (string, error) {
-	a := new([]uint16)
-	v := reflect.ValueOf(a)
-	var t reflect.StructTag
-	err := dec.fillUniDimensionalVaryingArray(v.Elem(), t, def)
+func (dec *Decoder) readString(conformant bool) (string, error) {
+	var m uint32
+	if conformant {
+		var err error
+		if m, err = dec.precedingMax(); err != nil {
+			return "", err
+		}
+	}
+	o, err := dec.readUint32()
 	if err != nil {
+		return "", fmt.Errorf("could not read string offset: %v", err)
+	}
+	s, err := dec.readUint32()
+	if err != nil {
+		return "", fmt.Errorf("could not read string actual count: %v", err)
+	}
+	// Windows rejects a string with an offset, which would otherwise place NUL code units before its characters.
+	if o != 0 {
+		return "", Errorf("string offset %d is not zero", o)
+	}
+	if conformant && s > m {
+		return "", Errorf("string actual count %d exceeds its max count %d", s, m)
+	}
+	n := int(s)
+	if err := dec.checkAllocatable(reflect.TypeOf(uint16(0)), n); err != nil {
 		return "", err
 	}
-	s := uint16SliceToString(*a)
-	return s, nil
-}
-
-func (dec *Decoder) readConformantVaryingString(def *[]deferedPtr) (string, error) {
-	a := new([]uint16)
-	v := reflect.ValueOf(a)
-	var t reflect.StructTag
-	err := dec.fillUniDimensionalConformantVaryingArray(v.Elem(), t, def)
-	if err != nil {
-		return "", err
+	a := make([]uint16, n)
+	for i := range a {
+		if a[i], err = dec.readUint16(); err != nil {
+			return "", fmt.Errorf("could not read string code unit %d: %v", i, err)
+		}
 	}
-	s := uint16SliceToString(*a)
-	return s, nil
+	return uint16SliceToString(a), nil
 }
 
 func (dec *Decoder) readStringsArray(v reflect.Value, tag reflect.StructTag, def *[]deferedPtr) error {
