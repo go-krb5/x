@@ -94,9 +94,20 @@ func checkInteger(bytes []byte, allowBER bool) error {
 	return nil
 }
 
+func trimInteger(bytes []byte) []byte {
+	for len(bytes) > 1 && (bytes[0] == 0x00 && bytes[1]&0x80 == 0x00 || bytes[0] == 0xff && bytes[1]&0x80 == 0x80) {
+		bytes = bytes[1:]
+	}
+	return bytes
+}
+
 func parseInt64(bytes []byte, allowBER bool) (ret int64, err error) {
 	if err = checkInteger(bytes, allowBER); err != nil {
 		return
+	}
+
+	if allowBER {
+		bytes = trimInteger(bytes)
 	}
 
 	if len(bytes) > 8 {
