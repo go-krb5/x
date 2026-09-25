@@ -62,3 +62,32 @@ func TestAesCts_RoundTrip_NonZeroIV(t *testing.T) {
 		assert.Equal(t, hex.EncodeToString(p), hex.EncodeToString(d), "round trip length %d", n)
 	}
 }
+
+func TestAesCts_InvalidInput(t *testing.T) {
+	key, _ := hex.DecodeString("636869636b656e207465726979616b69")
+	iv := make([]byte, 16)
+
+	for _, badIV := range [][]byte{nil, make([]byte, 8)} {
+		_, _, err := Encrypt(key, badIV, make([]byte, 32))
+		assert.Error(t, err)
+
+		_, err = Decrypt(key, badIV, make([]byte, 32))
+		assert.Error(t, err)
+	}
+
+	for _, n := range []int{0, 1, 15} {
+		_, _, err := Encrypt(key, iv, make([]byte, n))
+		assert.Error(t, err, "plaintext length %d", n)
+	}
+}
+
+func TestAesCts_SingleBlockNextIVIsNotCiphertext(t *testing.T) {
+	key, _ := hex.DecodeString("636869636b656e207465726979616b69")
+
+	niv, c, err := Encrypt(key, make([]byte, 16), make([]byte, 16))
+	assert.NoError(t, err)
+
+	want := hex.EncodeToString(niv)
+	c[0] ^= 0xff
+	assert.Equal(t, want, hex.EncodeToString(niv), "modifying the ciphertext must not modify the next iv")
+}
