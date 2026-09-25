@@ -20,7 +20,6 @@ var (
 	byteFFEncoder encoder = byteEncoder(0xff)
 )
 
-// encoder represents an ASN.1 element that is waiting to be marshaled.
 type encoder interface {
 	// Len returns the number of bytes needed to marshal this element.
 	Len() int
@@ -540,8 +539,13 @@ func makeBody(value reflect.Value, params fieldParameters, opts *marshalOpts) (e
 
 		var fp fieldParameters
 
-		if opts.slicePreserveTypes {
+		// A string type is only permitted on a slice of strings when sliceAllowStrings is set, so it applies to the
+		// elements then too, rather than being checked and then discarded.
+		if opts.slicePreserveTypes || opts.sliceAllowStrings && sliceType.Elem().Kind() == reflect.String {
 			fp.stringType = params.stringType
+		}
+
+		if opts.slicePreserveTypes {
 			fp.timeType = params.timeType
 		}
 
@@ -631,7 +635,7 @@ func makeField(v reflect.Value, params fieldParameters, opts *marshalOpts) (e en
 		return nil, StructuralError{fmt.Sprintf("unknown Go type: %v", v.Type())}
 	}
 
-	if params.timeType != 0 && tag != TagUTCTime {
+	if params.timeType != 0 && tag != TagUTCTime && (!opts.slicePreserveTypes || v.Kind() != reflect.Slice || tag != TagSequence || v.Type().Elem() != timeType) {
 		return nil, StructuralError{"explicit time type given to non-time member"}
 	}
 
