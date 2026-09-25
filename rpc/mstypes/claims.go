@@ -159,8 +159,18 @@ type ClaimTypeString struct {
 	Value      []LPWSTR `ndr:"pointer,conformant"`
 }
 
-// ClaimTypeBoolean is a claim of type bool
+// ClaimTypeBoolean is a claim of type bool. MS-ADTS 2.2.18.5 transmits each value as a ULONG64 that is 1 for TRUE
+// and 0 for FALSE.
 type ClaimTypeBoolean struct {
 	ValueCount uint32
-	Value      []bool `ndr:"pointer,conformant"`
+	Value      []uint64 `ndr:"pointer,conformant"`
+}
+
+// Bools returns the values of the claim, where any non-zero value is TRUE.
+func (c ClaimTypeBoolean) Bools() []bool {
+	b := make([]bool, len(c.Value))
+	for i, v := range c.Value {
+		b[i] = v != 0
+	}
+	return b
 }
