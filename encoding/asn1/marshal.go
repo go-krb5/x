@@ -571,7 +571,13 @@ func makeBody(value reflect.Value, params fieldParameters, opts *marshalOpts) (e
 		}
 	case reflect.String:
 		switch params.stringType {
-		case TagIA5String, TagGeneralString:
+		case TagGeneralString:
+			if opts.generalStringOctets {
+				return stringEncoder(v.String()), nil
+			}
+
+			return makeIA5String(v.String())
+		case TagIA5String:
 			return makeIA5String(v.String())
 		case TagPrintableString:
 			return makePrintableString(v.String())
